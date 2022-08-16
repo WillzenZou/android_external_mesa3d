@@ -28,6 +28,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <xf86drm.h>
+#include "drm-uapi/pancsf_drm.h"
 #include "drm-uapi/panfrost_drm.h"
 
 #include "pan_bo.h"
@@ -36,6 +37,7 @@
 #include "wrap.h"
 
 #include "util/os_mman.h"
+#include "util/os_time.h"
 
 #include "util/u_inlines.h"
 #include "util/u_math.h"
@@ -59,30 +61,92 @@ static struct panfrost_bo *
 panfrost_bo_alloc(struct panfrost_device *dev, size_t size, uint32_t flags,
                   const char *label)
 {
-   struct drm_panfrost_create_bo create_bo = {.size = size};
    struct panfrost_bo *bo;
+   uint32_t bo_handle;
+   uint32_t sync_handle = 0;
+   uint64_t gpu_va;
    int ret;
 
-   if (dev->kernel_version->version_major > 1 ||
-       dev->kernel_version->version_minor >= 1) {
-      if (flags & PAN_BO_GROWABLE)
-         create_bo.flags |= PANFROST_BO_HEAP;
+   if (dev->arch < 10) {
+      struct drm_panfrost_create_bo create_bo = {.size = size};
+
+      if (dev->kernel_version->version_major > 1 ||
+          dev->kernel_version->version_minor >= 1) {
+         if (flags & PAN_BO_GROWABLE)
+            create_bo.flags |= PANFROST_BO_HEAP;
+         if (!(flags & PAN_BO_EXECUTE))
+            create_bo.flags |= PANFROST_BO_NOEXEC;
+      }
+
+      ret = drmIoctl(dev->fd, DRM_IOCTL_PANFROST_CREATE_BO, &create_bo);
+      if (ret) {
+         fprintf(stderr, "DRM_IOCTL_PANFROST_CREATE_BO failed: %m\n");
+         return NULL;
+      }
+
+      bo_handle = create_bo.handle;
+      gpu_va = create_bo.offset;
+      size = create_bo.size;
+   } else {
+      struct drm_pancsf_bo_create boc = {
+         .size = size,
+         .vm_id = (flags & PAN_BO_ACCESS_SHARED) ? dev->vm_id : 0,
+      };
+
+      ret = drmIoctl(dev->fd, DRM_IOCTL_PANCSF_BO_CREATE, &boc);
+      if (ret) {
+         fprintf(stderr, "DRM_IOCTL_PANCSF_BO_CREATE failed: %m\n");
+         return NULL;
+      }
+
+      bo_handle = boc.handle;
+      size = boc.size;
+
+      ret = drmSyncobjCreate(dev->fd, 0, &sync_handle);
+      if (ret) {
+         fprintf(stderr, "drmSyncobjCreate failed: %s\n", strerror(-ret));
+         drmCloseBufferHandle(dev->fd, bo_handle);
+         return NULL;
+      }
+
+      struct drm_pancsf_vm_map map = {
+         .vm_id = dev->vm_id,
+         .bo_handle = bo_handle,
+         .bo_offset = 0,
+         .size = size,
+      };
+
+      /* Align on 2MB for bufs > 2MB. */
+      map.va = util_vma_heap_alloc(&dev->vma_heap, size,
+                                   size > 0x200000 ? 0x200000 : 0x1000);
+      assert(map.va);
+
       if (!(flags & PAN_BO_EXECUTE))
-         create_bo.flags |= PANFROST_BO_NOEXEC;
+         map.flags |= PANCSF_VMA_MAP_NOEXEC;
+      else
+         map.flags |= PANCSF_VMA_MAP_READONLY;
+
+      if (flags & PAN_BO_GPU_UNCACHED)
+         map.flags |= PANCSF_VMA_MAP_UNCACHED;
+
+      ret = drmIoctl(dev->fd, DRM_IOCTL_PANCSF_VM_MAP, &map);
+      if (ret) {
+         drmSyncobjDestroy(dev->fd, sync_handle);
+         drmCloseBufferHandle(dev->fd, bo_handle);
+         fprintf(stderr, "DRM_IOCTL_PANCSF_VM_MAP failed: %m\n");
+         return NULL;
+      }
+
+      gpu_va = map.va;
    }
 
-   ret = drmIoctl(dev->fd, DRM_IOCTL_PANFROST_CREATE_BO, &create_bo);
-   if (ret) {
-      fprintf(stderr, "DRM_IOCTL_PANFROST_CREATE_BO failed: %m\n");
-      return NULL;
-   }
-
-   bo = pan_lookup_bo(dev, create_bo.handle);
+   bo = pan_lookup_bo(dev, bo_handle);
    assert(!memcmp(bo, &((struct panfrost_bo){}), sizeof(*bo)));
 
-   bo->size = create_bo.size;
-   bo->ptr.gpu = create_bo.offset;
-   bo->gem_handle = create_bo.handle;
+   bo->size = size;
+   bo->ptr.gpu = gpu_va;
+   bo->gem_handle = bo_handle;
+   bo->sync.handle = sync_handle;
    bo->flags = flags;
    bo->dev = dev;
    bo->label = label;
@@ -93,6 +157,7 @@ static void
 panfrost_bo_free(struct panfrost_bo *bo)
 {
    struct drm_gem_close gem_close = {.handle = bo->gem_handle};
+   struct panfrost_device *dev = bo->dev;
    int ret;
 
    ret = drmIoctl(bo->dev->fd, DRM_IOCTL_GEM_CLOSE, &gem_close);
@@ -101,8 +166,124 @@ panfrost_bo_free(struct panfrost_bo *bo)
       assert(0);
    }
 
+   if (bo->dev->arch >= 10) {
+      if (bo->sync.handle && bo->sync.point) {
+         ret = drmSyncobjTimelineWait(bo->dev->fd, &bo->sync.handle,
+                                      &bo->sync.point, 1, INT64_MAX,
+                                      DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL, NULL);
+      }
+
+      struct drm_pancsf_vm_unmap unmap = {
+         .vm_id = bo->dev->vm_id,
+         .va = bo->ptr.gpu,
+         .size = bo->size,
+      };
+
+      ret = drmIoctl(dev->fd, DRM_IOCTL_PANCSF_VM_UNMAP, &unmap);
+      assert(!ret);
+
+      util_vma_heap_free(&dev->vma_heap, bo->ptr.gpu, bo->size);
+
+      drmSyncobjDestroy(dev->fd, bo->sync.handle);
+
+   }
+
    /* BO will be freed with the sparse array, but zero to indicate free */
    memset(bo, 0, sizeof(*bo));
+}
+
+struct dma_buf_export_sync_file {
+   __u32 flags;
+   __s32 fd;
+};
+
+struct dma_buf_import_sync_file {
+   __u32 flags;
+   __s32 fd;
+};
+
+#define DMA_BUF_SYNC_READ  (1 << 0)
+#define DMA_BUF_SYNC_WRITE (2 << 0)
+
+#define DMA_BUF_BASE 'b'
+#define DMA_BUF_IOCTL_EXPORT_SYNC_FILE                                         \
+   _IOWR(DMA_BUF_BASE, 2, struct dma_buf_export_sync_file)
+#define DMA_BUF_IOCTL_IMPORT_SYNC_FILE                                         \
+   _IOW(DMA_BUF_BASE, 3, struct dma_buf_import_sync_file)
+
+int
+panfrost_shared_bo_import_sync_handle(struct panfrost_bo *bo, uint32_t flags)
+{
+   if (!(bo->flags & PAN_BO_SHARED)) {
+      return -EINVAL;
+   }
+
+   int dmabuf_fd;
+   int ret = drmPrimeHandleToFD(bo->dev->fd, bo->gem_handle,
+                                DRM_CLOEXEC | DRM_RDWR, &dmabuf_fd);
+   if (ret) {
+      return ret;
+   }
+
+   struct dma_buf_export_sync_file esync = {
+      .flags =
+         (flags & PAN_BO_ACCESS_WRITE) ? DMA_BUF_SYNC_WRITE : DMA_BUF_SYNC_READ,
+   };
+
+   ret = drmIoctl(dmabuf_fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &esync);
+   if (ret) {
+      goto out_close_dmabuf_fd;
+   }
+
+   ret = drmSyncobjImportSyncFile(bo->dev->fd, bo->sync.handle, esync.fd);
+   if (ret) {
+      goto out_close_sync_fd;
+   }
+
+   bo->sync.point = 0;
+
+out_close_sync_fd:
+   close(esync.fd);
+out_close_dmabuf_fd:
+   close(dmabuf_fd);
+   return ret;
+}
+
+int
+panfrost_shared_bo_attach_sync_handle(struct panfrost_bo *bo, uint32_t handle,
+                                      uint32_t flags)
+{
+   if (!(bo->flags & PAN_BO_SHARED))
+      return -EINVAL;
+
+   int dmabuf_fd;
+   int ret = drmPrimeHandleToFD(bo->dev->fd, bo->gem_handle,
+                                DRM_CLOEXEC | DRM_RDWR, &dmabuf_fd);
+   if (ret) {
+      return ret;
+   }
+
+   int sync_fd;
+   ret = drmSyncobjExportSyncFile(bo->dev->fd, handle, &sync_fd);
+   if (ret) {
+      goto out_close_dmabuf_fd;
+   }
+
+   struct dma_buf_import_sync_file isync = {
+      .flags =
+         (flags & PAN_BO_ACCESS_WRITE) ? DMA_BUF_SYNC_WRITE : DMA_BUF_SYNC_READ,
+      .fd = sync_fd,
+   };
+   ret = drmIoctl(dmabuf_fd, DMA_BUF_IOCTL_IMPORT_SYNC_FILE, &isync);
+   if (ret) {
+      goto out_close_sync_fd;
+   }
+
+out_close_sync_fd:
+   close(sync_fd);
+out_close_dmabuf_fd:
+   close(dmabuf_fd);
+   return ret;
 }
 
 /* Returns true if the BO is ready, false otherwise.
@@ -113,10 +294,6 @@ panfrost_bo_free(struct panfrost_bo *bo)
 bool
 panfrost_bo_wait(struct panfrost_bo *bo, int64_t timeout_ns, bool wait_readers)
 {
-   struct drm_panfrost_wait_bo req = {
-      .handle = bo->gem_handle,
-      .timeout_ns = timeout_ns,
-   };
    int ret;
 
    /* If the BO has been exported or imported we can't rely on the cached
@@ -137,8 +314,35 @@ panfrost_bo_wait(struct panfrost_bo *bo, int64_t timeout_ns, bool wait_readers)
    /* The ioctl returns >= 0 value when the BO we are waiting for is ready
     * -1 otherwise.
     */
-   ret = drmIoctl(bo->dev->fd, DRM_IOCTL_PANFROST_WAIT_BO, &req);
-   if (ret != -1) {
+   if (bo->dev->arch < 10) {
+      struct drm_panfrost_wait_bo req = {
+         .handle = bo->gem_handle,
+         .timeout_ns = timeout_ns,
+      };
+
+      ret = drmIoctl(bo->dev->fd, DRM_IOCTL_PANFROST_WAIT_BO, &req);
+      if (ret == -1)
+         ret = -errno;
+   } else {
+      int64_t abs_timeout_ns;
+
+      if (timeout_ns < INT64_MAX - os_time_get_nano())
+         abs_timeout_ns = timeout_ns + os_time_get_nano();
+      else
+         abs_timeout_ns = INT64_MAX;
+
+      if (bo->flags & PAN_BO_SHARED) {
+         ret = panfrost_shared_bo_import_sync_handle(bo,
+                                                     bo->gpu_access & PAN_BO_ACCESS_WRITE);
+         assert(!ret);
+      }
+
+      ret = drmSyncobjTimelineWait(bo->dev->fd, &bo->sync.handle,
+                                   &bo->sync.point, 1, abs_timeout_ns,
+                                   DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL, NULL);
+   }
+
+   if (ret >= 0) {
       /* Set gpu_access to 0 so that the next call to bo_wait()
        * doesn't have to call the WAIT_BO ioctl.
        */
@@ -149,7 +353,7 @@ panfrost_bo_wait(struct panfrost_bo *bo, int64_t timeout_ns, bool wait_readers)
    /* If errno is not ETIMEDOUT or EBUSY that means the handle we passed
     * is invalid, which shouldn't happen here.
     */
-   assert(errno == ETIMEDOUT || errno == EBUSY);
+   assert(ret == -ETIMEDOUT || ret == -EBUSY || ret == -ETIME);
    return false;
 }
 
@@ -197,24 +401,32 @@ panfrost_bo_cache_fetch(struct panfrost_device *dev, size_t size,
 
       /* If the oldest BO in the cache is busy, likely so is
        * everything newer, so bail. */
-      if (!panfrost_bo_wait(entry, dontwait ? 0 : INT64_MAX, PAN_BO_ACCESS_RW))
+      if (!panfrost_bo_wait(entry, dontwait ? 0 : INT64_MAX, true))
          break;
-
-      struct drm_panfrost_madvise madv = {
-         .handle = entry->gem_handle,
-         .madv = PANFROST_MADV_WILLNEED,
-      };
-      int ret;
 
       /* This one works, splice it out of the cache */
       list_del(&entry->bucket_link);
       list_del(&entry->lru_link);
 
-      ret = drmIoctl(dev->fd, DRM_IOCTL_PANFROST_MADVISE, &madv);
-      if (!ret && !madv.retained) {
+      bool retained = true;
+
+      if (dev->arch < 10) {
+         struct drm_panfrost_madvise madv = {
+            .handle = entry->gem_handle,
+            .madv = PANFROST_MADV_WILLNEED,
+         };
+         int ret;
+
+         ret = drmIoctl(dev->fd, DRM_IOCTL_PANFROST_MADVISE, &madv);
+         if (!ret && !madv.retained)
+            retained = false;
+      }
+
+      if (!retained) {
          panfrost_bo_free(entry);
          continue;
       }
+
       /* Let's go! */
       bo = entry;
       bo->label = label;
@@ -265,14 +477,16 @@ panfrost_bo_cache_put(struct panfrost_bo *bo)
    pthread_mutex_lock(&dev->bo_cache.lock);
 
    struct list_head *bucket = pan_bucket(dev, MAX2(bo->size, 4096));
-   struct drm_panfrost_madvise madv;
    struct timespec time;
 
-   madv.handle = bo->gem_handle;
-   madv.madv = PANFROST_MADV_DONTNEED;
-   madv.retained = 0;
+   if (dev->arch < 10) {
+      struct drm_panfrost_madvise madv = {
+         .handle = bo->gem_handle,
+         .madv = PANFROST_MADV_DONTNEED,
+      };
 
-   drmIoctl(dev->fd, DRM_IOCTL_PANFROST_MADVISE, &madv);
+      drmIoctl(dev->fd, DRM_IOCTL_PANFROST_MADVISE, &madv);
+   }
 
    /* Add us to the bucket */
    list_addtail(&bo->bucket_link, bucket);
@@ -320,34 +534,47 @@ panfrost_bo_cache_evict_all(struct panfrost_device *dev)
 void
 panfrost_bo_mmap(struct panfrost_bo *bo)
 {
-   struct drm_panfrost_mmap_bo mmap_bo = {.handle = bo->gem_handle};
+   off_t offset;
    int ret;
 
    if (bo->ptr.cpu)
       return;
 
-   ret = drmIoctl(bo->dev->fd, DRM_IOCTL_PANFROST_MMAP_BO, &mmap_bo);
-   if (ret) {
-      fprintf(stderr, "DRM_IOCTL_PANFROST_MMAP_BO failed: %m\n");
-      assert(0);
+   if (bo->dev->arch < 10) {
+      struct drm_panfrost_mmap_bo mmap_bo = {.handle = bo->gem_handle};
+
+      ret = drmIoctl(bo->dev->fd, DRM_IOCTL_PANFROST_MMAP_BO, &mmap_bo);
+      if (ret) {
+         fprintf(stderr, "DRM_IOCTL_PANFROST_MMAP_BO failed: %m\n");
+         assert(0);
+      }
+      offset = mmap_bo.offset;
+   } else {
+      struct drm_pancsf_bo_mmap_offset mmapoffs = {.handle = bo->gem_handle};
+
+      ret = drmIoctl(bo->dev->fd, DRM_IOCTL_PANCSF_BO_MMAP_OFFSET, &mmapoffs);
+      if (ret) {
+         fprintf(stderr, "DRM_IOCTL_PANCSF_BO_GET_OFFSET failed: %m\n");
+         assert(0);
+      }
+      offset = mmapoffs.offset;
    }
 
    bo->ptr.cpu = os_mmap(NULL, bo->size, PROT_READ | PROT_WRITE, MAP_SHARED,
-                         bo->dev->fd, mmap_bo.offset);
+                         bo->dev->fd, offset);
    if (bo->ptr.cpu == MAP_FAILED) {
       bo->ptr.cpu = NULL;
       fprintf(stderr,
               "mmap failed: result=%p size=0x%llx fd=%i offset=0x%llx %m\n",
-              bo->ptr.cpu, (long long)bo->size, bo->dev->fd,
-              (long long)mmap_bo.offset);
+              bo->ptr.cpu, (long long)bo->size, bo->dev->fd, (long long)offset);
    }
 }
 
 static void
 panfrost_bo_munmap(struct panfrost_bo *bo)
 {
-   if (!bo->ptr.cpu)
-      return;
+   //        if (!bo->ptr.cpu)
+   return;
 
    if (os_munmap((void *)(uintptr_t)bo->ptr.cpu, bo->size)) {
       perror("munmap");
@@ -458,9 +685,6 @@ struct panfrost_bo *
 panfrost_bo_import(struct panfrost_device *dev, int fd)
 {
    struct panfrost_bo *bo;
-   struct drm_panfrost_get_bo_offset get_bo_offset = {
-      0,
-   };
    ASSERTED int ret;
    unsigned gem_handle;
 
@@ -472,13 +696,37 @@ panfrost_bo_import(struct panfrost_device *dev, int fd)
    bo = pan_lookup_bo(dev, gem_handle);
 
    if (!bo->dev) {
-      get_bo_offset.handle = gem_handle;
-      ret = drmIoctl(dev->fd, DRM_IOCTL_PANFROST_GET_BO_OFFSET, &get_bo_offset);
-      assert(!ret);
+      bo->size = lseek(fd, 0, SEEK_END);
+
+      if (dev->arch < 10) {
+         struct drm_panfrost_get_bo_offset get_bo_offset = {.handle =
+                                                               gem_handle};
+
+         ret =
+            drmIoctl(dev->fd, DRM_IOCTL_PANFROST_GET_BO_OFFSET, &get_bo_offset);
+         assert(!ret);
+         bo->ptr.gpu = (mali_ptr)get_bo_offset.offset;
+      } else {
+         struct drm_pancsf_vm_map map = {
+            .vm_id = dev->vm_id,
+            .bo_handle = gem_handle,
+            .bo_offset = 0,
+            .size = bo->size,
+         };
+
+         map.va = util_vma_heap_alloc(&dev->vma_heap, bo->size,
+                                      bo->size > 0x200000 ? 0x200000 : 0x1000);
+         assert(map.va);
+
+         ret = drmIoctl(dev->fd, DRM_IOCTL_PANCSF_VM_MAP, &map);
+         assert(!ret);
+
+         bo->ptr.gpu = map.va;
+         ret = drmSyncobjCreate(dev->fd, 0, &bo->sync.handle);
+         assert(!ret);
+      }
 
       bo->dev = dev;
-      bo->ptr.gpu = (mali_ptr)get_bo_offset.offset;
-      bo->size = lseek(fd, 0, SEEK_END);
       /* Sometimes this can fail and return -1. size of -1 is not
        * a nice thing for mmap to try mmap. Be more robust also
        * for zero sized maps and fail nicely too

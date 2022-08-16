@@ -87,6 +87,7 @@ __pandecode_fetch_gpu_mem(uint64_t gpu_va, size_t size, int line,
    name = __pandecode_fetch_gpu_mem(gpu_va, sizeof(*name), __LINE__, __FILE__)
 
 void pandecode_validate_buffer(mali_ptr addr, size_t sz);
+void pandecode_print_refs_to(mali_ptr addr);
 
 /* Forward declare for all supported gens to permit thunking */
 void pandecode_jc_v4(mali_ptr jc_gpu_va, unsigned gpu_id);

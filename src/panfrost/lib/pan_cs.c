@@ -442,7 +442,7 @@ pan_rt_init_format(const struct pan_image_view *rt,
 
 #if PAN_ARCH >= 9
 enum mali_afbc_compression_mode
-pan_afbc_compression_mode(enum pipe_format format)
+GENX(pan_afbc_compression_mode)(enum pipe_format format)
 {
    /* There's a special case for texturing the stencil part from a combined
     * depth/stencil texture, handle it separately.
@@ -532,7 +532,7 @@ pan_prepare_rt(const struct pan_fb_info *fb, unsigned idx, unsigned cbuf_offset,
       cfg->afbc.body_offset = surf.afbc.body - surf.afbc.header;
       assert(surf.afbc.body >= surf.afbc.header);
 
-      cfg->afbc.compression_mode = pan_afbc_compression_mode(rt->format);
+      cfg->afbc.compression_mode = GENX(pan_afbc_compression_mode)(rt->format);
       cfg->afbc.row_stride = row_stride;
 #else
       const struct pan_image_slice_layout *slice =
@@ -747,6 +747,7 @@ GENX(pan_emit_fbd)(const struct panfrost_device *dev,
 
       cfg.sample_locations =
          panfrost_sample_positions(dev, pan_sample_pattern(fb->nr_samples));
+      assert(cfg.sample_locations != 0);
       cfg.pre_frame_0 = pan_fix_frame_shader_mode(fb->bifrost.pre_post.modes[0],
                                                   force_clean_write);
       cfg.pre_frame_1 = pan_fix_frame_shader_mode(fb->bifrost.pre_post.modes[1],
@@ -754,7 +755,7 @@ GENX(pan_emit_fbd)(const struct panfrost_device *dev,
       cfg.post_frame = pan_fix_frame_shader_mode(fb->bifrost.pre_post.modes[2],
                                                  force_clean_write);
       cfg.frame_shader_dcds = fb->bifrost.pre_post.dcds.gpu;
-      cfg.tiler = tiler_ctx->bifrost;
+      cfg.tiler = tiler_ctx->bifrost.ctx;
 #endif
       cfg.width = fb->width;
       cfg.height = fb->height;
@@ -959,7 +960,7 @@ GENX(pan_emit_tiler_heap)(const struct panfrost_device *dev, void *out)
    pan_pack(out, TILER_HEAP, heap) {
       heap.size = dev->tiler_heap->size;
       heap.base = dev->tiler_heap->ptr.gpu;
-      heap.bottom = dev->tiler_heap->ptr.gpu;
+      heap.bottom = dev->tiler_heap->ptr.gpu + 64;
       heap.top = dev->tiler_heap->ptr.gpu + dev->tiler_heap->size;
    }
 }
@@ -974,7 +975,7 @@ GENX(pan_emit_tiler_ctx)(const struct panfrost_device *dev, unsigned fb_width,
 
    pan_pack(out, TILER_CONTEXT, tiler) {
       /* TODO: Select hierarchy mask more effectively */
-      tiler.hierarchy_mask = (max_levels >= 8) ? 0xFF : 0x28;
+      tiler.hierarchy_mask = (max_levels >= 8) ? 0xFE : 0x28;
 
       /* For large framebuffers, disable the smallest bin size to
        * avoid pathological tiler memory usage. Required to avoid OOM
@@ -987,14 +988,25 @@ GENX(pan_emit_tiler_ctx)(const struct panfrost_device *dev, unsigned fb_width,
       tiler.fb_width = fb_width;
       tiler.fb_height = fb_height;
       tiler.heap = heap;
+      tiler.heap = heap;
       tiler.sample_pattern = pan_sample_pattern(nr_samples);
 #if PAN_ARCH >= 9
       tiler.first_provoking_vertex = first_provoking_vertex;
+#endif
+#if PAN_ARCH >= 10
+      /* Temporary geometry buffer is placed just before the HEAP
+       * descriptor and is 64KB large.
+       *
+       * Note: DDK assigns this pointer in the CS.
+       */
+#define POSITION_FIFO_SIZE (64 * 1024)
+      tiler.geometry_buffer = (tiler.heap - POSITION_FIFO_SIZE);
 #endif
    }
 }
 #endif
 
+#if PAN_ARCH <= 9
 void
 GENX(pan_emit_fragment_job)(const struct pan_fb_info *fb, mali_ptr fbd,
                             void *out)
@@ -1020,3 +1032,4 @@ GENX(pan_emit_fragment_job)(const struct pan_fb_info *fb, mali_ptr fbd,
 #endif
    }
 }
+#endif

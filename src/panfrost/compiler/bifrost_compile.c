@@ -1012,7 +1012,7 @@ bi_emit_store_vary(bi_builder *b, nir_intrinsic_instr *instr)
    } else if (b->shader->arch >= 9 && b->shader->idvs != BI_IDVS_NONE) {
       bi_index index = bi_preload(b, 59);
 
-      if (psiz) {
+      if (psiz /*&& b->shader->arch == 9*/) {
          assert(T_size == 16 && "should've been lowered");
          index = bi_iadd_imm_i32(b, index, 4);
       }
@@ -1024,7 +1024,9 @@ bi_emit_store_vary(bi_builder *b, nir_intrinsic_instr *instr)
 
       bi_store(b, nr * nir_src_bit_size(instr->src[0]), data, a[0], a[1],
                varying ? BI_SEG_VARY : BI_SEG_POS,
-               varying ? bi_varying_offset(b->shader, instr) : 0);
+               varying ? bi_varying_offset(b->shader, instr) :
+                       //(psiz && b->shader->arch >= 10) ? 64 :
+                  0);
    } else if (immediate) {
       bi_index address = bi_lea_attr_imm(b, bi_vertex_id(b), bi_instance_id(b),
                                          regfmt, imm_index);

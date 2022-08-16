@@ -27,8 +27,10 @@
 #include <xf86drm.h>
 
 #include "drm-uapi/panfrost_drm.h"
+#include "drm-uapi/pancsf_drm.h"
 #include "util/hash_table.h"
 #include "util/macros.h"
+#include "util/os_mman.h"
 #include "util/u_math.h"
 #include "util/u_thread.h"
 #include "pan_bo.h"
@@ -70,6 +72,8 @@ const struct panfrost_model panfrost_model_list[] = {
         MODEL(0x7212, "G52",    "TGOx", HAS_ANISO,         16384, {}),
         MODEL(0x7402, "G52 r1", "TGOx", HAS_ANISO,         16384, {}),
         MODEL(0x9093, "G57",    "TNAx", HAS_ANISO,         16384, {}),
+
+        MODEL(0xa867, "G610",   "TNAx", HAS_ANISO,         16384, {}), // TODO
 };
 /* clang-format on */
 
@@ -92,6 +96,16 @@ panfrost_get_model(uint32_t gpu_id)
    return NULL;
 }
 
+static bool is_pancsf_fd(int fd)
+{
+        drmVersionPtr version = drmGetVersion(fd);
+        assert(version);
+        bool is_pancsf = !strcmp(version->name, "pancsf");
+        drmFreeVersion(version);
+
+        return is_pancsf;
+}
+
 /* Abstraction over the raw drm_panfrost_get_param ioctl for fetching
  * information about devices */
 
@@ -99,20 +113,76 @@ static __u64
 panfrost_query_raw(int fd, enum drm_panfrost_param param, bool required,
                    unsigned default_value)
 {
-   struct drm_panfrost_get_param get_param = {
-      0,
-   };
    ASSERTED int ret;
 
-   get_param.param = param;
-   ret = drmIoctl(fd, DRM_IOCTL_PANFROST_GET_PARAM, &get_param);
+   if (is_pancsf_fd(fd)) {
+      struct drm_pancsf_gpu_info gpuinfo = {};
+      struct drm_pancsf_dev_query dq = {
+         .type = DRM_PANCSF_DEV_QUERY_GPU_INFO,
+         .size = sizeof(gpuinfo),
+         .pointer = (uint64_t)(uintptr_t)&gpuinfo,
+      };
 
-   if (ret) {
-      assert(!required);
-      return default_value;
+      ret = drmIoctl(fd, DRM_IOCTL_PANCSF_DEV_QUERY, &dq);
+      assert(!ret);
+
+      switch (param) {
+      case DRM_PANFROST_PARAM_GPU_PROD_ID:
+         return gpuinfo.gpu_id >> 16;
+      case DRM_PANFROST_PARAM_GPU_REVISION:
+         return gpuinfo.gpu_id & 0xffff;
+      case DRM_PANFROST_PARAM_SHADER_PRESENT:
+         return gpuinfo.shader_present;
+      case DRM_PANFROST_PARAM_TILER_PRESENT:
+         return gpuinfo.tiler_present;
+      case DRM_PANFROST_PARAM_L2_PRESENT:
+         return gpuinfo.l2_present;
+      case DRM_PANFROST_PARAM_AS_PRESENT:
+         return gpuinfo.as_present;
+      case DRM_PANFROST_PARAM_L2_FEATURES:
+         return gpuinfo.l2_features;
+      case DRM_PANFROST_PARAM_TILER_FEATURES:
+         return gpuinfo.tiler_features;
+      case DRM_PANFROST_PARAM_MEM_FEATURES:
+         return gpuinfo.mem_features;
+      case DRM_PANFROST_PARAM_MMU_FEATURES:
+         return gpuinfo.mmu_features;
+      case DRM_PANFROST_PARAM_THREAD_FEATURES:
+         return gpuinfo.thread_features;
+      case DRM_PANFROST_PARAM_MAX_THREADS:
+         return gpuinfo.thread_features;
+      case DRM_PANFROST_PARAM_THREAD_MAX_WORKGROUP_SZ:
+         return gpuinfo.thread_max_workgroup_size;
+      case DRM_PANFROST_PARAM_THREAD_MAX_BARRIER_SZ:
+         return gpuinfo.thread_max_barrier_size;
+      case DRM_PANFROST_PARAM_COHERENCY_FEATURES:
+         return gpuinfo.coherency_features;
+      case DRM_PANFROST_PARAM_TEXTURE_FEATURES0 ... DRM_PANFROST_PARAM_TEXTURE_FEATURES3:
+         return gpuinfo
+            .texture_features[param - DRM_PANFROST_PARAM_TEXTURE_FEATURES0];
+      case DRM_PANFROST_PARAM_NR_CORE_GROUPS:
+         return gpuinfo.core_group_count;
+      case DRM_PANFROST_PARAM_THREAD_TLS_ALLOC:
+      case DRM_PANFROST_PARAM_AFBC_FEATURES:
+      case DRM_PANFROST_PARAM_STACK_PRESENT:
+      case DRM_PANFROST_PARAM_JS_PRESENT:
+      case DRM_PANFROST_PARAM_CORE_FEATURES:
+      case DRM_PANFROST_PARAM_JS_FEATURES0 ... DRM_PANFROST_PARAM_JS_FEATURES15:
+      default:
+         assert(!required);
+         return default_value;
+      }
+   } else {
+      struct drm_panfrost_get_param get_param = {.param = param};
+
+      ret = drmIoctl(fd, DRM_IOCTL_PANFROST_GET_PARAM, &get_param);
+      if (ret) {
+         assert(!required);
+         return default_value;
+      }
+
+      return get_param.value;
    }
-
-   return get_param.value;
 }
 
 static unsigned
@@ -288,6 +358,24 @@ panfrost_open_device(void *memctx, int fd, struct panfrost_device *dev)
    if (dev->debug & (PAN_DBG_TRACE | PAN_DBG_SYNC))
       pandecode_initialize(!(dev->debug & PAN_DBG_TRACE));
 
+   if (dev->arch >= 10) {
+      struct drm_pancsf_vm_create vmc = {
+         .flags = 0,
+      };
+
+      int ret = drmIoctl(dev->fd, DRM_IOCTL_PANCSF_VM_CREATE, &vmc);
+
+      assert(!ret && vmc.id > 0);
+      dev->vm_id = vmc.id;
+
+      /* 4G range, with the top/bottom 32M reserved. */
+      util_vma_heap_init(&dev->vma_heap, 0x2000000, 0xfe000000);
+
+      dev->flush_id = os_mmap(0, 4096, PROT_READ, MAP_SHARED, dev->fd,
+			      DRM_PANCSF_USER_FLUSH_ID_MMIO_OFFSET);
+      assert(dev->flush_id != MAP_FAILED);
+   }
+
    /* Tiler heap is internally required by the tiler, which can only be
     * active for a single job chain at once, so a single heap can be
     * shared across batches/contextes */
@@ -318,4 +406,7 @@ panfrost_close_device(struct panfrost_device *dev)
 
    drmFreeVersion(dev->kernel_version);
    close(dev->fd);
+
+   if (dev->arch >= 10)
+      util_vma_heap_finish(&dev->vma_heap);
 }

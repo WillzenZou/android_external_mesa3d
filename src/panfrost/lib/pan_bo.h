@@ -50,6 +50,8 @@
  * cached locally */
 #define PAN_BO_SHARED (1 << 4)
 
+#define PAN_BO_GPU_UNCACHED (1 << 5)
+
 /* GPU access flags */
 
 /* BO is either shared (can be accessed by more than one GPU batch) or private
@@ -115,6 +117,12 @@ struct panfrost_bo {
 
    /* Human readable description of the BO for debugging. */
    const char *label;
+
+   /* Syncobject to wait on before re-using the buffer. */
+   struct {
+      uint32_t handle;
+      uint64_t point;
+   } sync;
 };
 
 bool panfrost_bo_wait(struct panfrost_bo *bo, int64_t timeout_ns,
@@ -127,5 +135,9 @@ void panfrost_bo_mmap(struct panfrost_bo *bo);
 struct panfrost_bo *panfrost_bo_import(struct panfrost_device *dev, int fd);
 int panfrost_bo_export(struct panfrost_bo *bo);
 void panfrost_bo_cache_evict_all(struct panfrost_device *dev);
+int panfrost_shared_bo_import_sync_handle(struct panfrost_bo *bo,
+                                          uint32_t flags);
+int panfrost_shared_bo_attach_sync_handle(struct panfrost_bo *bo,
+                                          uint32_t handle, uint32_t flags);
 
 #endif /* __PAN_BO_H__ */

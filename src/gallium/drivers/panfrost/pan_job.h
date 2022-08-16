@@ -82,6 +82,8 @@ pan_tristate_get(struct pan_tristate state)
 /* A panfrost_batch corresponds to a bound FBO we're rendering to,
  * collecting over multiple draws. */
 
+struct ceu_builder;
+
 struct panfrost_batch {
    struct panfrost_context *ctx;
    struct pipe_framebuffer_state key;
@@ -101,6 +103,8 @@ struct panfrost_batch {
 
    /* Buffers needing resolve to memory */
    unsigned resolve;
+
+   bool any_compute;
 
    /* Packed clear values, indexed by both render target as well as word.
     * Essentially, a single pixel is packed, with some padding to bring it
@@ -141,6 +145,11 @@ struct panfrost_batch {
 
    /* Job scoreboarding state */
    struct pan_scoreboard scoreboard;
+
+   struct ceu_builder *ceu_builder;
+
+   /* CSF stream state BO. */
+   struct panfrost_ptr cs_state;
 
    /* Polygon list bound to the batch, or NULL if none bound yet */
    struct panfrost_bo *polygon_list;
@@ -192,6 +201,8 @@ struct panfrost_batch {
     */
    struct pan_tristate sprite_coord_origin;
    struct pan_tristate first_provoking_vertex;
+
+   uint32_t draw_count;
 };
 
 /* Functions for managing the above */

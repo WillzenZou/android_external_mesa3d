@@ -143,6 +143,48 @@ pandecode_validate_buffer(mali_ptr addr, size_t sz)
 }
 
 void
+pandecode_print_refs_to(mali_ptr addr)
+{
+   if (!addr)
+      return;
+
+   uint64_t unused_lo = ffs(addr);
+   uint64_t mask = 0xffffffffffff >> unused_lo;
+
+   pandecode_log("searching refs to %lx\n", addr);
+   rb_tree_foreach(struct pandecode_mapped_memory, mem, &mmap_tree, node) {
+      if (!mem->addr)
+         continue;
+
+      if (mem->gpu_va == 0x7fdfffe21000 || mem->gpu_va == 0x7fdffdc00000 ||
+          mem->gpu_va == 0x7fdffbc00000 || mem->gpu_va == 0x7fdff9c00000 ||
+          mem->gpu_va == 0x7fdff7c00000)
+         continue;
+
+      uint64_t *ptr = mem->addr;
+      for (uint64_t i = 0; i < mem->length; i += 8) {
+         if (ptr[i / 8] == addr) {
+            pandecode_log("%lx referenced at %lx\n", addr, mem->gpu_va + i);
+            break;
+         }
+
+         uint64_t test_mask = mask;
+         uint64_t test_addr = addr >> unused_lo;
+
+         do {
+            if ((ptr[i / 8] & test_mask) == test_addr) {
+               pandecode_log("%lx referenced at %lx (value %lx)\n", addr,
+                             mem->gpu_va + i, ptr[i / 8]);
+               break;
+            }
+            test_addr <<= 1;
+            test_mask <<= 1;
+         } while (!(test_mask & 0x8000000000000000ull));
+      }
+   }
+}
+
+void
 pandecode_map_read_write(void)
 {
    simple_mtx_assert_locked(&pandecode_lock);

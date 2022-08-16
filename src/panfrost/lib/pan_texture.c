@@ -438,7 +438,7 @@ panfrost_emit_plane(const struct pan_image_layout *layout,
          cfg.afbc.ytr = (layout->modifier & AFBC_FORMAT_MOD_YTR);
          cfg.afbc.tiled_header = (layout->modifier & AFBC_FORMAT_MOD_TILED);
          cfg.afbc.prefetch = true;
-         cfg.afbc.compression_mode = pan_afbc_compression_mode(format);
+         cfg.afbc.compression_mode = GENX(pan_afbc_compression_mode)(format);
          cfg.afbc.header_stride = layout->slices[level].afbc.header_size;
       } else {
          cfg.plane_type = MALI_PLANE_TYPE_GENERIC;

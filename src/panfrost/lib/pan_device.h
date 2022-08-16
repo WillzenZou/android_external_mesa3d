@@ -36,6 +36,7 @@
 #include "util/list.h"
 #include "util/sparse_array.h"
 #include "util/u_dynarray.h"
+#include "util/vma.h"
 
 #include "panfrost/util/pan_ir.h"
 #include "pan_pool.h"
@@ -209,6 +210,13 @@ struct panfrost_device {
     * unconditionally on Bifrost, and useful for sharing with Midgard */
 
    struct panfrost_bo *sample_positions;
+
+   /* Default VM for pancsf devices. */
+   uint32_t vm_id;
+   struct util_vma_heap vma_heap;
+
+   /* FLUSH_ID register. */
+   uint32_t *flush_id;
 };
 
 void panfrost_open_device(void *memctx, int fd, struct panfrost_device *dev);

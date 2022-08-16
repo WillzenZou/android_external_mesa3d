@@ -249,7 +249,7 @@ pandecode_run_fragment(struct queue_ctx *ctx, struct MALI_CEU_RUN_FRAGMENT *I)
    DUMP_CL(SCISSOR, &ctx->regs[42], "Scissor\n");
 
    /* TODO: Tile enable map */
-   GENX(pandecode_fbd)(cs_get_u64(ctx, 40), true, ctx->gpu_id);
+   GENX(pandecode_fbd)(cs_get_u64(ctx, 40) & ~0x3full, true, ctx->gpu_id);
 
    pandecode_indent--;
 }
@@ -698,12 +698,7 @@ interpret_ceu_instr(struct queue_ctx *ctx)
    }
 
    case MALI_CEU_OPCODE_JUMP: {
-      pan_unpack(bytes, CEU_CALL, I);
-
-      if (ctx->call_stack_depth == 0) {
-         fprintf(stderr, "Cannot jump from the entrypoint\n");
-         return false;
-      }
+      pan_unpack(bytes, CEU_JUMP, I);
 
       return interpret_ceu_jump(ctx, I.address, I.length);
    }
