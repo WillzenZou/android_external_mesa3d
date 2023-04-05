@@ -678,7 +678,12 @@ panfrost_resource_create_with_modifier(struct pipe_screen *screen,
                        : (bind & PIPE_BIND_SHADER_IMAGE)    ? "Shader image"
                                                             : "Other resource";
 
-   if (dev->ro && (template->bind & PIPE_BIND_SCANOUT)) {
+   /* Set up the "scanout resource". If the buffer might ever have
+    * resource_get_handle(WINSYS_HANDLE_TYPE_KMS) called on it.
+    * create_with_modifiers() doesn't give us usage flags, so we have to
+    * assume that all calls with PIPE_BIND_SHARED are scanout-possible.
+    */
+   if (dev->ro && (template->bind & PAN_BIND_SHARED_MASK)) {
       struct winsys_handle handle;
       struct pan_block_size blocksize =
          panfrost_block_size(modifier, template->format);
