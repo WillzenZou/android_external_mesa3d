@@ -3760,9 +3760,11 @@ panfrost_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 
    struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
    struct panfrost_compiled_shader *fs = ctx->prog[PIPE_SHADER_FRAGMENT];
+   bool fs_required = panfrost_fs_required(
+      fs, ctx->blend, &ctx->pipe_framebuffer, ctx->depth_stencil);
 
    assert(vs->info.vs.idvs && "IDVS required for CSF");
-   bool secondary_shader = vs->info.vs.secondary_enable;
+   bool secondary_shader = vs->info.vs.secondary_enable && fs_required;
    mali_ptr indices = 0;
 
    if (info->index_size) {
@@ -3853,8 +3855,14 @@ panfrost_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
    panfrost_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
                              panfrost_get_position_shader(batch, info));
 
-   panfrost_emit_shader_regs(batch, PIPE_SHADER_FRAGMENT,
-                             batch->rsd[PIPE_SHADER_FRAGMENT]);
+   if (fs_required) {
+      panfrost_emit_shader_regs(batch, PIPE_SHADER_FRAGMENT,
+                                batch->rsd[PIPE_SHADER_FRAGMENT]);
+   } else {
+      ceu_move64_to(b, ceu_reg64(b, 4), 0);
+      ceu_move64_to(b, ceu_reg64(b, 12), 0);
+      ceu_move64_to(b, ceu_reg64(b, 20), 0);
+   }
 
    if (secondary_shader) {
       ceu_move64_to(b, ceu_reg64(b, 18), panfrost_get_varying_shader(batch));
@@ -3953,50 +3961,73 @@ panfrost_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 
       cfg.single_sampled_lines = !rast->multisample;
 
-      bool has_oq = ctx->occlusion_query && ctx->active_queries;
+      if (fs_required) {
+         bool has_oq = ctx->occlusion_query && ctx->active_queries;
+         struct pan_earlyzs_state earlyzs =
+            pan_earlyzs_get(fs->earlyzs, ctx->depth_stencil->writes_zs || has_oq,
+                            ctx->blend->base.alpha_to_coverage,
+                            ctx->depth_stencil->zs_always_passes);
 
-      if (has_oq) {
-         if (ctx->occlusion_query->type == PIPE_QUERY_OCCLUSION_COUNTER)
-            cfg.occlusion_query = MALI_OCCLUSION_MODE_COUNTER;
-         else
-            cfg.occlusion_query = MALI_OCCLUSION_MODE_PREDICATE;
+         if (has_oq) {
+            if (ctx->occlusion_query->type == PIPE_QUERY_OCCLUSION_COUNTER)
+               cfg.occlusion_query = MALI_OCCLUSION_MODE_COUNTER;
+            else
+               cfg.occlusion_query = MALI_OCCLUSION_MODE_PREDICATE;
+         }
+
+         cfg.pixel_kill_operation = earlyzs.kill;
+         cfg.zs_update_operation = earlyzs.update;
+
+         cfg.allow_forward_pixel_to_kill =
+            pan_allow_forward_pixel_to_kill(ctx, fs);
+         cfg.allow_forward_pixel_to_be_killed = !fs->info.writes_global;
+
+         cfg.overdraw_alpha0 = panfrost_overdraw_alpha(ctx, 0);
+         cfg.overdraw_alpha1 = panfrost_overdraw_alpha(ctx, 1);
+
+         /* Also use per-sample shading if required by the shader
+          */
+         cfg.evaluate_per_sample |= fs->info.fs.sample_shading;
+
+         /* Unlike Bifrost, alpha-to-coverage must be included in
+          * this identically-named flag. Confusing, isn't it?
+          */
+         cfg.shader_modifies_coverage = fs->info.fs.writes_coverage ||
+                                        fs->info.fs.can_discard ||
+                                        ctx->blend->base.alpha_to_coverage;
+
+         cfg.alpha_to_coverage = ctx->blend->base.alpha_to_coverage;
+      } else {
+         /* These operations need to be FORCE to benefit from the
+          * depth-only pass optimizations.
+          */
+         cfg.pixel_kill_operation = MALI_PIXEL_KILL_FORCE_EARLY;
+         cfg.zs_update_operation = MALI_PIXEL_KILL_FORCE_EARLY;
+
+         /* No shader and no blend => no shader or blend
+          * reasons to disable FPK. The only FPK-related state
+          * not covered is alpha-to-coverage which we don't set
+          * without blend.
+          */
+         cfg.allow_forward_pixel_to_kill = true;
+
+         /* No shader => no shader side effects */
+         cfg.allow_forward_pixel_to_be_killed = true;
+
+         /* Alpha isn't written so these are vacuous */
+         cfg.overdraw_alpha0 = true;
+         cfg.overdraw_alpha1 = true;
       }
-
-      struct pan_earlyzs_state earlyzs =
-         pan_earlyzs_get(fs->earlyzs, ctx->depth_stencil->writes_zs || has_oq,
-                         ctx->blend->base.alpha_to_coverage,
-                         ctx->depth_stencil->zs_always_passes);
-
-      cfg.pixel_kill_operation = earlyzs.kill;
-      cfg.zs_update_operation = earlyzs.update;
-
-      cfg.allow_forward_pixel_to_kill =
-         pan_allow_forward_pixel_to_kill(ctx, fs);
-      cfg.allow_forward_pixel_to_be_killed = !fs->info.writes_global;
-
-      /* Also use per-sample shading if required by the shader
-       */
-      cfg.evaluate_per_sample |= fs->info.fs.sample_shading;
-
-      /* Unlike Bifrost, alpha-to-coverage must be included in
-       * this identically-named flag. Confusing, isn't it?
-       */
-      cfg.shader_modifies_coverage = fs->info.fs.writes_coverage ||
-                                     fs->info.fs.can_discard ||
-                                     ctx->blend->base.alpha_to_coverage;
-
-      cfg.alpha_to_coverage = ctx->blend->base.alpha_to_coverage;
-
-      cfg.overdraw_alpha0 = panfrost_overdraw_alpha(ctx, 0);
-      cfg.overdraw_alpha1 = panfrost_overdraw_alpha(ctx, 1);
    }
 
    pan_pack(&dcd_flags1, DCD_FLAGS_1, cfg) {
       cfg.sample_mask = rast->multisample ? ctx->sample_mask : 0xFFFF;
 
-      /* See JM Valhall equivalent code */
-      cfg.render_target_mask =
-         (fs->info.outputs_written >> FRAG_RESULT_DATA0) & ctx->fb_rt_mask;
+      if (fs_required) {
+         /* See JM Valhall equivalent code */
+         cfg.render_target_mask =
+            (fs->info.outputs_written >> FRAG_RESULT_DATA0) & ctx->fb_rt_mask;
+      }
    }
 
    ceu_move32_to(b, ceu_reg32(b, 57), dcd_flags0);
