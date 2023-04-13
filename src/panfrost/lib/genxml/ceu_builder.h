@@ -337,6 +337,21 @@ ceu_finish_tiling(ceu_builder *b)
 }
 
 static inline void
+ceu_finish_fragment(ceu_builder *b, bool increment_frag_completed,
+                    ceu_index first_free_heap_chunk,
+                    ceu_index last_free_heap_chunk,
+                    uint16_t scoreboard_mask, uint8_t signal_slot)
+{
+   ceu_emit(b, FINISH_FRAGMENT, I) {
+      I.increment_fragment_completed = increment_frag_completed;
+      I.wait_mask = scoreboard_mask;
+      I.first_heap_chunk = ceu_to_reg64(first_free_heap_chunk);
+      I.last_heap_chunk = ceu_to_reg64(last_free_heap_chunk);
+      I.scoreboard_entry = signal_slot;
+   }
+}
+
+static inline void
 ceu_heap_set(ceu_builder *b, ceu_index address)
 {
    ceu_emit(b, HEAP_SET, I)

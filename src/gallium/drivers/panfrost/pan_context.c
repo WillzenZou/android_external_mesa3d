@@ -561,6 +561,7 @@ panfrost_cleanup_cs_queue(struct panfrost_context *ctx)
    };
    int ret = drmIoctl(dev->fd, DRM_IOCTL_PANCSF_TILER_HEAP_DESTROY, &thd);
    assert(!ret);
+   panfrost_bo_unreference(ctx->heap.desc_bo);
 
    struct drm_pancsf_group_destroy gd = {
       .group_handle = ctx->group.handle,

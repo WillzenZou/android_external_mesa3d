@@ -2694,10 +2694,6 @@ panfrost_emit_heap_set(struct panfrost_batch *batch, bool vt)
    ceu_move64_to(b, heap, batch->ctx->heap.tiler_heap_ctx_gpu_va);
    ceu_heap_set(b, heap);
 
-   dev->tiler_heap->ptr.cpu = NULL;
-   dev->tiler_heap->ptr.gpu = batch->ctx->heap.first_heap_chunk_gpu_va;
-   dev->tiler_heap->size = 2097152;
-
    if (vt) {
       /* Set up the statistics */
       ceu_vt_start(b);
@@ -2782,7 +2778,7 @@ emit_fragment_job(struct panfrost_batch *batch, const struct pan_fb_info *pfb)
    if (batch->draws) {
       /* Finish tiling and wait for IDVS and tiling */
       ceu_finish_tiling(b);
-      ceu_wait_slots(b, 0xFF);
+      ceu_wait_slot(b, 2);
       ceu_vt_end(b);
    }
 
@@ -2794,10 +2790,20 @@ emit_fragment_job(struct panfrost_batch *batch, const struct pan_fb_info *pfb)
 
    /* Run the fragment job and wait */
    ceu_run_fragment(b, false);
-   ceu_wait_slots(b, 0xff);
-   /* TODO: finish_fragment */
+   ceu_wait_slot(b, 2);
 
-   //        ceu_frag_end(b);
+   /* Gather freed heap chunks and add them to the heap context free list
+    * so they can be re-used next time the tiler heap runs out of chunks.
+    * That's what ceu_finish_fragment() is all about. The list of freed
+    * chunks is in the tiler context descriptor
+    * (completed_{top,bottom fields}). */
+   if (batch->tiler_ctx.bifrost.ctx) {
+      ceu_move64_to(b, ceu_reg64(b, 94), batch->tiler_ctx.bifrost.ctx);
+      ceu_load_to(b, ceu_reg_tuple(b, 90, 4), ceu_reg64(b, 94), BITFIELD_MASK(4), 40);
+      ceu_wait_slot(b, 0);
+      ceu_finish_fragment(b, true, ceu_reg64(b, 90), ceu_reg64(b, 92), 0x0, 1);
+      ceu_wait_slot(b, 1);
+   }
 
    panfrost_emit_batch_end(batch);
    return 0;
@@ -3082,26 +3088,37 @@ panfrost_batch_get_bifrost_tiler(struct panfrost_batch *batch,
    if (batch->tiler_ctx.bifrost.ctx)
       return batch->tiler_ctx.bifrost.ctx;
 
-   /* Allocate the position FIFO and the tiler heap descriptor.
-    * Don't know what the extra 4k are for. */
-   size_t size =
-      POSITION_FIFO_SIZE + ALIGN(pan_size(TILER_CONTEXT), 4096) + 4096;
    struct panfrost_ptr t =
-      pan_pool_alloc_aligned(&batch->pool.base, size, POSITION_FIFO_SIZE);
+      pan_pool_alloc_aligned(&batch->pool.base, POSITION_FIFO_SIZE, POSITION_FIFO_SIZE);
 
-   /* XXX: unnecessary */
-   memset(t.cpu, 0, size);
+   mali_ptr heap, geom_buf = t.gpu;
 
-   GENX(pan_emit_tiler_heap)(dev, (uint8_t *)t.cpu + POSITION_FIFO_SIZE);
+#if PAN_ARCH >= 10
+   if (!batch->ctx->heap.desc_bo) {
+      batch->ctx->heap.desc_bo =
+         panfrost_bo_create(pan_device(batch->ctx->base.screen), pan_size(TILER_HEAP),
+                            0, "Tiler Heap");
+      pan_pack(batch->ctx->heap.desc_bo->ptr.cpu, TILER_HEAP, heap) {
+         heap.size = 2 * 1024 * 1024;
+         heap.base = batch->ctx->heap.first_heap_chunk_gpu_va;
+         heap.bottom = heap.base + 64;
+         heap.top = heap.base + heap.size;
+      }
+   }
+   heap = batch->ctx->heap.desc_bo->ptr.gpu;
+#else
+   t = pan_pool_alloc_desc(&batch->pool.base, TILER_HEAP);
+   GENX(pan_emit_tiler_heap)(dev, (uint8_t *)t.cpu);
+   heap = t.gpu;
+#endif
 
-   mali_ptr heap = t.gpu + POSITION_FIFO_SIZE;
    batch->tiler_ctx.bifrost.heap = heap;
 
    t = pan_pool_alloc_desc(&batch->pool.base, TILER_CONTEXT);
    GENX(pan_emit_tiler_ctx)
    (dev, batch->key.width, batch->key.height,
     util_framebuffer_get_num_samples(&batch->key),
-    pan_tristate_get(batch->first_provoking_vertex), heap, t.cpu);
+    pan_tristate_get(batch->first_provoking_vertex), heap, geom_buf, t.cpu);
 
    batch->tiler_ctx.bifrost.ctx = t.gpu;
    return batch->tiler_ctx.bifrost.ctx;

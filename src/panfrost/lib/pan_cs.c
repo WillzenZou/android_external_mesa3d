@@ -968,7 +968,8 @@ GENX(pan_emit_tiler_heap)(const struct panfrost_device *dev, void *out)
 void
 GENX(pan_emit_tiler_ctx)(const struct panfrost_device *dev, unsigned fb_width,
                          unsigned fb_height, unsigned nr_samples,
-                         bool first_provoking_vertex, mali_ptr heap, void *out)
+                         bool first_provoking_vertex, mali_ptr heap,
+                         mali_ptr geom_buf, void *out)
 {
    unsigned max_levels = dev->tiler_features.max_levels;
    assert(max_levels >= 2);
@@ -988,7 +989,6 @@ GENX(pan_emit_tiler_ctx)(const struct panfrost_device *dev, unsigned fb_width,
       tiler.fb_width = fb_width;
       tiler.fb_height = fb_height;
       tiler.heap = heap;
-      tiler.heap = heap;
       tiler.sample_pattern = pan_sample_pattern(nr_samples);
 #if PAN_ARCH >= 9
       tiler.first_provoking_vertex = first_provoking_vertex;
@@ -1000,7 +1000,7 @@ GENX(pan_emit_tiler_ctx)(const struct panfrost_device *dev, unsigned fb_width,
        * Note: DDK assigns this pointer in the CS.
        */
 #define POSITION_FIFO_SIZE (64 * 1024)
-      tiler.geometry_buffer = (tiler.heap - POSITION_FIFO_SIZE);
+      tiler.geometry_buffer = geom_buf;
 #endif
    }
 }

@@ -332,69 +332,33 @@ GENX(pandecode_tiler)(mali_ptr gpu_va, unsigned gpu_id)
    DUMP_UNPACKED(TILER_CONTEXT, t, "Tiler Context @%" PRIx64 ":\n", gpu_va);
 
 #if PAN_ARCH >= 10
-   if (t.heap) {
-      mali_ptr heap = t.heap;
-      mali_ptr heap_prefix_ptr = heap - 0x10000;
-      const uint32_t *PANDECODE_PTR_VAR(heap_prefix, heap_prefix_ptr);
+   if (t.geometry_buffer) {
+      mali_ptr geom_buf = t.geometry_buffer;
+      const uint32_t *PANDECODE_PTR_VAR(pos_fifo, geom_buf);
       bool repeat_pattern_printed = false;
 
-      pandecode_log("Position FIFO %lx:\n", heap_prefix_ptr);
+      pandecode_log("Position FIFO %lx:\n", geom_buf);
       pandecode_indent++;
       for (unsigned i = 0; i < 0x10000 / 4; i += 4) {
          bool first = i == 0;
          bool last = i == ((0x10000 / 4) - 4);
 
          if (!first && !last &&
-             !memcmp(&heap_prefix[i], &heap_prefix[i - 4],
-                     sizeof(*heap_prefix) * 4)) {
+             !memcmp(&pos_fifo[i], &pos_fifo[i - 4],
+                     sizeof(*pos_fifo) * 4)) {
             if (!repeat_pattern_printed) {
                pandecode_log("*\n");
                repeat_pattern_printed = true;
             }
          } else {
-            pandecode_log("0x%x: %08x %08x %08x %08x\n", i * 4, heap_prefix[i],
-                          heap_prefix[i + 1], heap_prefix[i + 2],
-                          heap_prefix[i + 3]);
+            pandecode_log("0x%x: %08x %08x %08x %08x\n", i * 4, pos_fifo[i],
+                          pos_fifo[i + 1], pos_fifo[i + 2],
+                          pos_fifo[i + 3]);
             repeat_pattern_printed = false;
          }
       }
       pandecode_indent--;
-
-      mali_ptr heap_postfix_ptr = heap + 0x40;
-      const uint32_t *PANDECODE_PTR_VAR(heap_postfix, heap_postfix_ptr);
-      pandecode_log("Pointer Array %lx:\n", heap_postfix_ptr);
-      pandecode_indent++;
-      repeat_pattern_printed = false;
-      for (unsigned i = 0; i < (0x2000 - 0x40) / 4; i += 4) {
-         bool first = i == 0;
-         bool last = i == (((0x2000 - 0x40) / 4) - 4);
-
-         if (!first && !last &&
-             !memcmp(&heap_postfix[i], &heap_postfix[i - 4],
-                     sizeof(*heap_postfix) * 4)) {
-            if (!repeat_pattern_printed) {
-               pandecode_log("*\n");
-               repeat_pattern_printed = true;
-            }
-         } else {
-            pandecode_log("0x%x: %08x %08x %08x %08x\n", i * 4, heap_postfix[i],
-                          heap_postfix[i + 1], heap_postfix[i + 2],
-                          heap_postfix[i + 3]);
-            repeat_pattern_printed = false;
-         }
-      }
-      pandecode_indent--;
-
-      //		pandecode_print_refs_to(heap_prefix_ptr);
    }
-
-   // pandecode_print_refs_to(gpu_va + 0x40);
-/*
-        uint32_t *words = PANDECODE_PTR(gpu_va, void) + 64;
-        mprotect((void*)((uintptr_t)words & ~4095ull), 4096, PROT_READ |
-   PROT_WRITE); for (unsigned i = 0; i < 16; i++) words[i] = 0;
-        mprotect((void*)((uintptr_t)words & ~4095ull), 4096, PROT_READ);
-*/
 #endif
 }
 #endif
