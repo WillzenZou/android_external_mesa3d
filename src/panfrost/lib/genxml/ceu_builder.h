@@ -286,6 +286,18 @@ ceu_wait_slots(ceu_builder *b, uint8_t slots)
 }
 
 static inline void
+ceu_branch(ceu_builder *b, int16_t offset,
+           enum mali_ceu_condition cond, ceu_index val)
+{
+   ceu_emit(b, BRANCH, I)
+   {
+      I.offset = offset;
+      I.condition = cond;
+      I.value = ceu_to_reg32(val);
+   }
+}
+
+static inline void
 ceu_run_compute(ceu_builder *b, unsigned task_increment,
                 enum mali_task_axis task_axis)
 {
