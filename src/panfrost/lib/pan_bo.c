@@ -160,18 +160,10 @@ panfrost_bo_free(struct panfrost_bo *bo)
    struct panfrost_device *dev = bo->dev;
    int ret;
 
-   ret = drmIoctl(bo->dev->fd, DRM_IOCTL_GEM_CLOSE, &gem_close);
-   if (ret) {
-      fprintf(stderr, "DRM_IOCTL_GEM_CLOSE failed: %m\n");
-      assert(0);
-   }
-
    if (bo->dev->arch >= 10) {
-      if (bo->sync.handle && bo->sync.point) {
-         ret = drmSyncobjTimelineWait(bo->dev->fd, &bo->sync.handle,
-                                      &bo->sync.point, 1, INT64_MAX,
-                                      DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL, NULL);
-      }
+      /* Make sure all jobs are done accessing this buffer before unmapping. */
+      ret = panfrost_bo_wait(bo, INT64_MAX, true);
+      assert(ret);
 
       struct drm_pancsf_vm_unmap unmap = {
          .vm_id = bo->dev->vm_id,
@@ -185,7 +177,12 @@ panfrost_bo_free(struct panfrost_bo *bo)
       util_vma_heap_free(&dev->vma_heap, bo->ptr.gpu, bo->size);
 
       drmSyncobjDestroy(dev->fd, bo->sync.handle);
+   }
 
+   ret = drmIoctl(bo->dev->fd, DRM_IOCTL_GEM_CLOSE, &gem_close);
+   if (ret) {
+      fprintf(stderr, "DRM_IOCTL_GEM_CLOSE failed: %m\n");
+      assert(0);
    }
 
    /* BO will be freed with the sparse array, but zero to indicate free */
