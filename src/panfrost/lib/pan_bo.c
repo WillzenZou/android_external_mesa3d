@@ -217,7 +217,7 @@ panfrost_shared_bo_import_sync_handle(struct panfrost_bo *bo, uint32_t flags)
 
    int dmabuf_fd;
    int ret = drmPrimeHandleToFD(bo->dev->fd, bo->gem_handle,
-                                DRM_CLOEXEC | DRM_RDWR, &dmabuf_fd);
+                                DRM_CLOEXEC, &dmabuf_fd);
    if (ret) {
       return ret;
    }
