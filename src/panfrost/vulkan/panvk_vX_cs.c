@@ -540,7 +540,7 @@ panvk_per_arch(emit_tiler_job)(const struct panvk_pipeline *pipeline,
    panvk_emit_tiler_dcd(pipeline, draw, section);
 
    pan_section_pack(job, TILER_JOB, TILER, cfg) {
-      cfg.address = draw->tiler_ctx->bifrost;
+      cfg.address = draw->tiler_ctx->bifrost.ctx;
    }
    pan_section_pack(job, TILER_JOB, PADDING, padding)
       ;
