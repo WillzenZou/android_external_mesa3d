@@ -28,6 +28,7 @@ panvk_entrypoints = custom_target(
   command : [
     prog_python, '@INPUT0@', '--xml', '@INPUT1@', '--proto', '--weak',
     '--out-h', '@OUTPUT0@', '--out-c', '@OUTPUT1@', '--prefix', 'panvk',
+    '--device-prefix', 'panvk_bifrost',
     '--device-prefix', 'panvk_v6', '--device-prefix', 'panvk_v7',
     '--beta', with_vulkan_beta.to_string()
   ],
@@ -35,10 +36,10 @@ panvk_entrypoints = custom_target(
 )
 
 libpanvk_files = files(
+  'bifrost/panvk_cs.c',
+  'bifrost/panvk_descriptor_set.c',
   'panvk_cmd_buffer.c',
-  'panvk_cs.c',
   'panvk_device.c',
-  'panvk_descriptor_set.c',
   'panvk_formats.c',
   'panvk_image.c',
   'panvk_mempool.c',
@@ -60,18 +61,18 @@ foreach arch : ['6', '7']
     'panvk_v@0@'.format(arch),
     [
       panvk_entrypoints[0],
-      'panvk_vX_cmd_buffer.c',
-      'panvk_vX_cs.c',
-      'panvk_vX_descriptor_set.c',
-      'panvk_vX_device.c',
-      'panvk_vX_image.c',
-      'panvk_vX_meta.c',
-      'panvk_vX_meta_blit.c',
-      'panvk_vX_meta_copy.c',
-      'panvk_vX_meta_clear.c',
-      'panvk_vX_nir_lower_descriptors.c',
-      'panvk_vX_pipeline.c',
-      'panvk_vX_shader.c',
+      'bifrost/panvk_vX_cmd_buffer.c',
+      'bifrost/panvk_vX_cs.c',
+      'bifrost/panvk_vX_descriptor_set.c',
+      'bifrost/panvk_vX_device.c',
+      'bifrost/panvk_vX_image.c',
+      'bifrost/panvk_vX_meta.c',
+      'bifrost/panvk_vX_meta_blit.c',
+      'bifrost/panvk_vX_meta_copy.c',
+      'bifrost/panvk_vX_meta_clear.c',
+      'bifrost/panvk_vX_nir_lower_descriptors.c',
+      'bifrost/panvk_vX_pipeline.c',
+      'bifrost/panvk_vX_shader.c',
     ],
     include_directories : [
       inc_include,

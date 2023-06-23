@@ -1145,25 +1145,25 @@ VK_DEFINE_NONDISP_HANDLE_CASTS(panvk_sampler, base, VkSampler,
 #elif PAN_ARCH == 7
 #define panvk_per_arch(name) panvk_arch_name(name, v7)
 #endif
-#include "panvk_vX_cmd_buffer.h"
-#include "panvk_vX_cs.h"
-#include "panvk_vX_device.h"
-#include "panvk_vX_meta.h"
+#include "bifrost/panvk_vX_cmd_buffer.h"
+#include "bifrost/panvk_vX_cs.h"
+#include "bifrost/panvk_vX_device.h"
+#include "bifrost/panvk_vX_meta.h"
 #else
 #define PAN_ARCH             6
 #define panvk_per_arch(name) panvk_arch_name(name, v6)
-#include "panvk_vX_cmd_buffer.h"
-#include "panvk_vX_cs.h"
-#include "panvk_vX_device.h"
-#include "panvk_vX_meta.h"
+#include "bifrost/panvk_vX_cmd_buffer.h"
+#include "bifrost/panvk_vX_cs.h"
+#include "bifrost/panvk_vX_device.h"
+#include "bifrost/panvk_vX_meta.h"
 #undef PAN_ARCH
 #undef panvk_per_arch
 #define PAN_ARCH             7
 #define panvk_per_arch(name) panvk_arch_name(name, v7)
-#include "panvk_vX_cmd_buffer.h"
-#include "panvk_vX_cs.h"
-#include "panvk_vX_device.h"
-#include "panvk_vX_meta.h"
+#include "bifrost/panvk_vX_cmd_buffer.h"
+#include "bifrost/panvk_vX_cs.h"
+#include "bifrost/panvk_vX_device.h"
+#include "bifrost/panvk_vX_meta.h"
 #undef PAN_ARCH
 #undef panvk_per_arch
 #endif

@@ -992,17 +992,19 @@ panvk_CreateDevice(VkPhysicalDevice physicalDevice,
    if (!device)
       return vk_error(physical_device, VK_ERROR_OUT_OF_HOST_MEMORY);
 
-   const struct vk_device_entrypoint_table *dev_entrypoints;
+   const struct vk_device_entrypoint_table *base_dev_entrypoints, *dev_entrypoints;
    const struct vk_command_buffer_ops *cmd_buffer_ops;
    struct vk_device_dispatch_table dispatch_table;
    unsigned arch = pan_arch(physical_device->kmod.props.gpu_prod_id);
 
    switch (arch) {
    case 6:
+      base_dev_entrypoints = &panvk_bifrost_device_entrypoints;
       dev_entrypoints = &panvk_v6_device_entrypoints;
       cmd_buffer_ops = &panvk_v6_cmd_buffer_ops;
       break;
    case 7:
+      base_dev_entrypoints = &panvk_bifrost_device_entrypoints;
       dev_entrypoints = &panvk_v7_device_entrypoints;
       cmd_buffer_ops = &panvk_v7_cmd_buffer_ops;
       break;
@@ -1018,6 +1020,8 @@ panvk_CreateDevice(VkPhysicalDevice physicalDevice,
       &dispatch_table, &vk_cmd_enqueue_unless_primary_device_entrypoints, true);
 
    vk_device_dispatch_table_from_entrypoints(&dispatch_table, dev_entrypoints,
+                                             false);
+   vk_device_dispatch_table_from_entrypoints(&dispatch_table, base_dev_entrypoints,
                                              false);
    vk_device_dispatch_table_from_entrypoints(&dispatch_table,
                                              &panvk_device_entrypoints, false);
