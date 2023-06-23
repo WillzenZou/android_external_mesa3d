@@ -77,6 +77,18 @@ panvk_per_arch(create_device)(struct panvk_physical_device *physical_device,
 
    vk_device_dispatch_table_from_entrypoints(
       &dispatch_table, &panvk_per_arch(device_entrypoints), false);
+
+   unsigned arch = pan_arch(physical_device->kmod.props.gpu_prod_id);
+   switch (arch) {
+   case 6:
+   case 7:
+      vk_device_dispatch_table_from_entrypoints(
+         &dispatch_table, &panvk_bifrost_device_entrypoints, false);
+      break;
+   default:
+      unreachable("Unsupported architecture");
+   }
+
    vk_device_dispatch_table_from_entrypoints(&dispatch_table,
                                              &panvk_device_entrypoints, false);
    vk_device_dispatch_table_from_entrypoints(&dispatch_table,
