@@ -45,7 +45,7 @@
 #define PANVK_MAX_UBOS     255
 
 void
-panvk_GetDescriptorSetLayoutSupport(
+panvk_bifrost_GetDescriptorSetLayoutSupport(
    VkDevice _device, const VkDescriptorSetLayoutCreateInfo *pCreateInfo,
    VkDescriptorSetLayoutSupport *pSupport)
 {
@@ -119,10 +119,10 @@ panvk_GetDescriptorSetLayoutSupport(
  */
 
 VkResult
-panvk_CreatePipelineLayout(VkDevice _device,
-                           const VkPipelineLayoutCreateInfo *pCreateInfo,
-                           const VkAllocationCallbacks *pAllocator,
-                           VkPipelineLayout *pPipelineLayout)
+panvk_bifrost_CreatePipelineLayout(VkDevice _device,
+                                   const VkPipelineLayoutCreateInfo *pCreateInfo,
+                                   const VkAllocationCallbacks *pAllocator,
+                                   VkPipelineLayout *pPipelineLayout)
 {
    VK_FROM_HANDLE(panvk_device, device, _device);
    struct panvk_pipeline_layout *layout;
@@ -206,10 +206,10 @@ panvk_CreatePipelineLayout(VkDevice _device,
 }
 
 VkResult
-panvk_CreateDescriptorPool(VkDevice _device,
-                           const VkDescriptorPoolCreateInfo *pCreateInfo,
-                           const VkAllocationCallbacks *pAllocator,
-                           VkDescriptorPool *pDescriptorPool)
+panvk_bifrost_CreateDescriptorPool(VkDevice _device,
+                                  const VkDescriptorPoolCreateInfo *pCreateInfo,
+                                  const VkAllocationCallbacks *pAllocator,
+                                  VkDescriptorPool *pDescriptorPool)
 {
    VK_FROM_HANDLE(panvk_device, device, _device);
    struct panvk_descriptor_pool *pool;
@@ -269,8 +269,8 @@ panvk_CreateDescriptorPool(VkDevice _device,
 }
 
 void
-panvk_DestroyDescriptorPool(VkDevice _device, VkDescriptorPool _pool,
-                            const VkAllocationCallbacks *pAllocator)
+panvk_bifrost_DestroyDescriptorPool(VkDevice _device, VkDescriptorPool _pool,
+                                    const VkAllocationCallbacks *pAllocator)
 {
    VK_FROM_HANDLE(panvk_device, device, _device);
    VK_FROM_HANDLE(panvk_descriptor_pool, pool, _pool);
@@ -280,8 +280,8 @@ panvk_DestroyDescriptorPool(VkDevice _device, VkDescriptorPool _pool,
 }
 
 VkResult
-panvk_ResetDescriptorPool(VkDevice _device, VkDescriptorPool _pool,
-                          VkDescriptorPoolResetFlags flags)
+panvk_bifrost_ResetDescriptorPool(VkDevice _device, VkDescriptorPool _pool,
+                                  VkDescriptorPoolResetFlags flags)
 {
    VK_FROM_HANDLE(panvk_descriptor_pool, pool, _pool);
    memset(&pool->cur, 0, sizeof(pool->cur));
@@ -289,9 +289,9 @@ panvk_ResetDescriptorPool(VkDevice _device, VkDescriptorPool _pool,
 }
 
 static void
-panvk_descriptor_set_destroy(struct panvk_device *device,
-                             struct panvk_descriptor_pool *pool,
-                             struct panvk_descriptor_set *set)
+panvk_bifrost_descriptor_set_destroy(struct panvk_device *device,
+                                     struct panvk_descriptor_pool *pool,
+                                     struct panvk_descriptor_set *set)
 {
    vk_free(&device->vk.alloc, set->textures);
    vk_free(&device->vk.alloc, set->samplers);
@@ -306,8 +306,10 @@ panvk_descriptor_set_destroy(struct panvk_device *device,
 }
 
 VkResult
-panvk_FreeDescriptorSets(VkDevice _device, VkDescriptorPool descriptorPool,
-                         uint32_t count, const VkDescriptorSet *pDescriptorSets)
+panvk_bifrost_FreeDescriptorSets(VkDevice _device,
+                                 VkDescriptorPool descriptorPool,
+                                 uint32_t count,
+                                 const VkDescriptorSet *pDescriptorSets)
 {
    VK_FROM_HANDLE(panvk_device, device, _device);
    VK_FROM_HANDLE(panvk_descriptor_pool, pool, descriptorPool);
@@ -316,13 +318,13 @@ panvk_FreeDescriptorSets(VkDevice _device, VkDescriptorPool descriptorPool,
       VK_FROM_HANDLE(panvk_descriptor_set, set, pDescriptorSets[i]);
 
       if (set)
-         panvk_descriptor_set_destroy(device, pool, set);
+         panvk_bifrost_descriptor_set_destroy(device, pool, set);
    }
    return VK_SUCCESS;
 }
 
 VkResult
-panvk_CreateSamplerYcbcrConversion(
+panvk_bifrost_CreateSamplerYcbcrConversion(
    VkDevice device, const VkSamplerYcbcrConversionCreateInfo *pCreateInfo,
    const VkAllocationCallbacks *pAllocator,
    VkSamplerYcbcrConversion *pYcbcrConversion)
@@ -332,9 +334,9 @@ panvk_CreateSamplerYcbcrConversion(
 }
 
 void
-panvk_DestroySamplerYcbcrConversion(VkDevice device,
-                                    VkSamplerYcbcrConversion ycbcrConversion,
-                                    const VkAllocationCallbacks *pAllocator)
+panvk_bifrost_DestroySamplerYcbcrConversion(VkDevice device,
+                                            VkSamplerYcbcrConversion ycbcrConversion,
+                                            const VkAllocationCallbacks *pAllocator)
 {
    panvk_stub();
 }
