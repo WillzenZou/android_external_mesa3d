@@ -171,7 +171,9 @@ panvk_physical_device_finish(struct panvk_physical_device *device)
 {
    panvk_wsi_finish(device);
 
-   panvk_arch_dispatch(device->pdev.arch, meta_cleanup, device);
+   if (device->pdev.arch <= 7)
+      panvk_bi_arch_dispatch(device->pdev.arch, meta_cleanup, device);
+
    panfrost_close_device(&device->pdev);
    if (device->master_fd != -1)
       close(device->master_fd);
@@ -277,7 +279,8 @@ panvk_physical_device_init(struct panvk_physical_device *device,
                        path);
    }
 
-   if (strcmp(version->name, "panfrost")) {
+   if (strcmp(version->name, "panfrost") &&
+       strcmp(version->name, "pancsf")) {
       drmFreeVersion(version);
       close(fd);
       return vk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER,
@@ -332,7 +335,8 @@ panvk_physical_device_init(struct panvk_physical_device *device,
       goto fail;
    }
 
-   panvk_arch_dispatch(device->pdev.arch, meta_init, device);
+   if (device->pdev.arch <= 7)
+      panvk_bi_arch_dispatch(device->pdev.arch, meta_init, device);
 
    memset(device->name, 0, sizeof(device->name));
    sprintf(device->name, "%s", device->pdev.model->name);
@@ -814,6 +818,9 @@ panvk_queue_init(struct panvk_device *device, struct panvk_queue *queue,
    case 7:
       queue->vk.driver_submit = panvk_v7_queue_submit;
       break;
+   case 10:
+      // TODO: queue->vk.driver_submit = panvk_v10_queue_submit;
+      break;
    default:
       unreachable("Invalid arch");
    }
@@ -856,6 +863,11 @@ panvk_CreateDevice(VkPhysicalDevice physicalDevice,
       base_dev_entrypoints = &panvk_bifrost_device_entrypoints;
       dev_entrypoints = &panvk_v7_device_entrypoints;
       cmd_buffer_ops = &panvk_v7_cmd_buffer_ops;
+      break;
+   case 10:
+      base_dev_entrypoints = &panvk_valhall_device_entrypoints;
+      dev_entrypoints = &panvk_v10_device_entrypoints;
+      cmd_buffer_ops = NULL; // TODO: &panvk_v10_cmd_buffer_ops;
       break;
    default:
       unreachable("Unsupported architecture");
