@@ -1,0 +1,126 @@
+/*
+ * Copyright © 2023 Collabora Ltd.
+ * SPDX-License-Identifier: MIT
+ */
+
+#include "genxml/gen_macros.h"
+
+#include "panvk_buffer.h"
+#include "panvk_cmd_buffer.h"
+#include "panvk_cmd_pool.h"
+#include "panvk_device.h"
+#include "panvk_entrypoints.h"
+#include "panvk_event.h"
+#include "panvk_instance.h"
+#include "panvk_physical_device.h"
+#include "panvk_pipeline.h"
+#include "panvk_pipeline_layout.h"
+#include "panvk_priv_bo.h"
+
+#include "util/rounding.h"
+#include "util/u_pack_color.h"
+#include "vk_format.h"
+
+static uint32_t
+panvk_debug_adjust_bo_flags(const struct panvk_device *device,
+                            uint32_t bo_flags)
+{
+   struct panvk_instance *instance =
+      to_panvk_instance(device->vk.physical->instance);
+
+   if (instance->debug_flags & PANVK_DEBUG_DUMP)
+      bo_flags &= ~PAN_KMOD_BO_FLAG_NO_MMAP;
+
+   return bo_flags;
+}
+
+static VkResult
+panvk_create_cmdbuf(struct vk_command_pool *vk_pool,
+                    struct vk_command_buffer **cmdbuf_out)
+{
+   struct panvk_device *device =
+      container_of(vk_pool->base.device, struct panvk_device, vk);
+   struct panvk_cmd_pool *pool =
+      container_of(vk_pool, struct panvk_cmd_pool, vk);
+   struct panvk_cmd_buffer *cmdbuf;
+
+   cmdbuf = vk_zalloc(&device->vk.alloc, sizeof(*cmdbuf), 8,
+                      VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
+   if (!cmdbuf)
+      return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
+
+   VkResult result = vk_command_buffer_init(&pool->vk, &cmdbuf->vk,
+                                            &panvk_per_arch(cmd_buffer_ops), 0);
+   if (result != VK_SUCCESS) {
+      vk_free(&device->vk.alloc, cmdbuf);
+      return result;
+   }
+
+   panvk_pool_init(&cmdbuf->desc_pool, device, &pool->desc_bo_pool, 0,
+                   64 * 1024, "Command buffer descriptor pool", true);
+   panvk_pool_init(
+      &cmdbuf->tls_pool, device, &pool->tls_bo_pool,
+      panvk_debug_adjust_bo_flags(device, PAN_KMOD_BO_FLAG_NO_MMAP), 64 * 1024,
+      "TLS pool", false);
+   panvk_pool_init(
+      &cmdbuf->varying_pool, device, &pool->varying_bo_pool,
+      panvk_debug_adjust_bo_flags(device, PAN_KMOD_BO_FLAG_NO_MMAP), 64 * 1024,
+      "Varyings pool", false);
+   list_inithead(&cmdbuf->batches);
+   *cmdbuf_out = &cmdbuf->vk;
+   return VK_SUCCESS;
+}
+
+static void
+panvk_reset_cmdbuf(struct vk_command_buffer *vk_cmdbuf,
+                   VkCommandBufferResetFlags flags)
+{
+   struct panvk_cmd_buffer *cmdbuf =
+      container_of(vk_cmdbuf, struct panvk_cmd_buffer, vk);
+
+   vk_command_buffer_reset(&cmdbuf->vk);
+
+   list_for_each_entry_safe(struct panvk_batch, batch, &cmdbuf->batches, node) {
+      list_del(&batch->node);
+      util_dynarray_fini(&batch->jobs);
+      util_dynarray_fini(&batch->event_ops);
+
+      vk_free(&cmdbuf->vk.pool->alloc, batch);
+   }
+
+   panvk_pool_reset(&cmdbuf->desc_pool);
+   panvk_pool_reset(&cmdbuf->tls_pool);
+   panvk_pool_reset(&cmdbuf->varying_pool);
+
+   for (unsigned i = 0; i < MAX_BIND_POINTS; i++)
+      memset(&cmdbuf->bind_points[i].desc_state.sets, 0,
+             sizeof(cmdbuf->bind_points[0].desc_state.sets));
+}
+
+static void
+panvk_destroy_cmdbuf(struct vk_command_buffer *vk_cmdbuf)
+{
+   struct panvk_cmd_buffer *cmdbuf =
+      container_of(vk_cmdbuf, struct panvk_cmd_buffer, vk);
+   struct panvk_device *dev = to_panvk_device(cmdbuf->vk.base.device);
+
+   list_for_each_entry_safe(struct panvk_batch, batch, &cmdbuf->batches, node) {
+      list_del(&batch->node);
+      util_dynarray_fini(&batch->jobs);
+      util_dynarray_fini(&batch->event_ops);
+
+      vk_free(&cmdbuf->vk.pool->alloc, batch);
+   }
+
+   panvk_pool_cleanup(&cmdbuf->desc_pool);
+   panvk_pool_cleanup(&cmdbuf->tls_pool);
+   panvk_pool_cleanup(&cmdbuf->varying_pool);
+   vk_command_buffer_finish(&cmdbuf->vk);
+   vk_free(&dev->vk.alloc, cmdbuf);
+}
+
+const struct vk_command_buffer_ops panvk_per_arch(cmd_buffer_ops) = {
+   .create = panvk_create_cmdbuf,
+   .reset = panvk_reset_cmdbuf,
+   .destroy = panvk_destroy_cmdbuf,
+};

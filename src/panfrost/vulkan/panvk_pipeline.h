@@ -82,7 +82,9 @@ struct panvk_pipeline {
    struct {
       uint64_t address;
       struct pan_shader_info info;
+#if PAN_ARCH <= 7
       struct mali_renderer_state_packed rsd_template;
+#endif
       bool required;
       bool dynamic_rsd;
       uint8_t rt_mask;

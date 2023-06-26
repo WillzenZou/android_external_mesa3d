@@ -85,6 +85,10 @@ panvk_per_arch(create_device)(struct panvk_physical_device *physical_device,
       vk_device_dispatch_table_from_entrypoints(
          &dispatch_table, &panvk_bifrost_device_entrypoints, false);
       break;
+   case 10:
+      vk_device_dispatch_table_from_entrypoints(
+         &dispatch_table, &panvk_valhall_device_entrypoints, false);
+      break;
    default:
       unreachable("Unsupported architecture");
    }
@@ -139,10 +143,12 @@ panvk_per_arch(create_device)(struct panvk_physical_device *physical_device,
       pan_kmod_vm_create(device->kmod.dev, PAN_KMOD_VM_FLAG_AUTO_VA,
                          user_va_start, user_va_end - user_va_start);
 
-   device->tiler_heap = panvk_priv_bo_create(
-      device, 128 * 1024 * 1024,
-      PAN_KMOD_BO_FLAG_NO_MMAP | PAN_KMOD_BO_FLAG_ALLOC_ON_FAULT,
-      &device->vk.alloc, VK_SYSTEM_ALLOCATION_SCOPE_DEVICE);
+   if (arch < 10) {
+      device->tiler_heap = panvk_priv_bo_create(
+         device, 128 * 1024 * 1024,
+         PAN_KMOD_BO_FLAG_NO_MMAP | PAN_KMOD_BO_FLAG_ALLOC_ON_FAULT,
+         &device->vk.alloc, VK_SYSTEM_ALLOCATION_SCOPE_DEVICE);
+   }
 
    device->sample_positions = panvk_priv_bo_create(
       device, panfrost_sample_positions_buffer_size(), 0, &device->vk.alloc,
@@ -151,7 +157,9 @@ panvk_per_arch(create_device)(struct panvk_physical_device *physical_device,
 
    vk_device_set_drm_fd(&device->vk, device->kmod.dev->fd);
 
+#if PAN_ARCH <= 7
    panvk_per_arch(meta_init)(device);
+#endif
 
    for (unsigned i = 0; i < pCreateInfo->queueCreateInfoCount; i++) {
       const VkDeviceQueueCreateInfo *queue_create =
@@ -190,7 +198,9 @@ fail:
          vk_object_free(&device->vk, NULL, device->queues[i]);
    }
 
+#if PAN_ARCH <= 7
    panvk_per_arch(meta_cleanup)(device);
+#endif
    panvk_priv_bo_destroy(device->tiler_heap, &device->vk.alloc);
    panvk_priv_bo_destroy(device->sample_positions, &device->vk.alloc);
    pan_kmod_vm_destroy(device->kmod.vm);
@@ -214,7 +224,9 @@ panvk_per_arch(destroy_device)(struct panvk_device *device,
          vk_object_free(&device->vk, NULL, device->queues[i]);
    }
 
+#if PAN_ARCH <= 7
    panvk_per_arch(meta_cleanup)(device);
+#endif
    panvk_priv_bo_destroy(device->tiler_heap, &device->vk.alloc);
    panvk_priv_bo_destroy(device->sample_positions, &device->vk.alloc);
    pan_kmod_vm_destroy(device->kmod.vm);
