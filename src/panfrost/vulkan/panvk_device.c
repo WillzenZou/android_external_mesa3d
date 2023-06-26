@@ -438,7 +438,8 @@ panvk_physical_device_init(struct panvk_physical_device *device,
                        path);
    }
 
-   if (strcmp(version->name, "panfrost")) {
+   if (strcmp(version->name, "panfrost") &&
+       strcmp(version->name, "panthor")) {
       drmFreeVersion(version);
       close(fd);
       return vk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER,
@@ -494,7 +495,7 @@ panvk_physical_device_init(struct panvk_physical_device *device,
    device->formats.all = panfrost_format_table(arch);
    device->formats.blendable = panfrost_blendable_format_table(arch);
 
-   if (arch <= 5 || arch >= 8) {
+   if (arch <= 5) {
       result = vk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER,
                          "%s not supported", device->model->name);
       goto fail;
@@ -858,6 +859,9 @@ panvk_queue_init(struct panvk_device *device, struct panvk_queue *queue,
    case 7:
       queue->vk.driver_submit = panvk_v7_queue_submit;
       break;
+   case 10:
+      // TODO: queue->vk.driver_submit = panvk_v10_queue_submit;
+      break;
    default:
       unreachable("Unsupported architecture");
    }
@@ -1008,6 +1012,11 @@ panvk_CreateDevice(VkPhysicalDevice physicalDevice,
       dev_entrypoints = &panvk_v7_device_entrypoints;
       cmd_buffer_ops = &panvk_v7_cmd_buffer_ops;
       break;
+   case 10:
+      base_dev_entrypoints = &panvk_valhall_device_entrypoints;
+      dev_entrypoints = &panvk_v10_device_entrypoints;
+      cmd_buffer_ops = NULL; // TODO: &panvk_v10_cmd_buffer_ops;
+      break;
    default:
       unreachable("Unsupported architecture");
    }
@@ -1088,7 +1097,8 @@ panvk_CreateDevice(VkPhysicalDevice physicalDevice,
 
    vk_device_set_drm_fd(&device->vk, device->kmod.dev->fd);
 
-   panvk_arch_dispatch(arch, meta_init, device);
+   if (arch <= 7)
+      panvk_bi_arch_dispatch(arch, meta_init, device);
 
    for (unsigned i = 0; i < pCreateInfo->queueCreateInfoCount; i++) {
       const VkDeviceQueueCreateInfo *queue_create =
@@ -1127,8 +1137,9 @@ fail:
          vk_object_free(&device->vk, NULL, device->queues[i]);
    }
 
-   panvk_arch_dispatch(pan_arch(physical_device->kmod.props.gpu_prod_id),
-                       meta_cleanup, device);
+   if (arch <= 7)
+      panvk_bi_arch_dispatch(arch, meta_cleanup, device);
+
    panvk_priv_bo_destroy(device->tiler_heap, &device->vk.alloc);
    panvk_priv_bo_destroy(device->sample_positions, &device->vk.alloc);
    pan_kmod_vm_destroy(device->kmod.vm);
@@ -1157,8 +1168,11 @@ panvk_DestroyDevice(VkDevice _device, const VkAllocationCallbacks *pAllocator)
          vk_object_free(&device->vk, NULL, device->queues[i]);
    }
 
-   panvk_arch_dispatch(pan_arch(physical_device->kmod.props.gpu_prod_id),
-                       meta_cleanup, device);
+   unsigned arch = pan_arch(physical_device->kmod.props.gpu_prod_id);
+
+   if (arch <= 7)
+      panvk_bi_arch_dispatch(arch, meta_cleanup, device);
+
    panvk_priv_bo_destroy(device->tiler_heap, &device->vk.alloc);
    panvk_priv_bo_destroy(device->sample_positions, &device->vk.alloc);
    pan_kmod_vm_destroy(device->kmod.vm);

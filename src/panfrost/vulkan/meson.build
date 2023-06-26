@@ -30,6 +30,8 @@ panvk_entrypoints = custom_target(
     '--out-h', '@OUTPUT0@', '--out-c', '@OUTPUT1@', '--prefix', 'panvk',
     '--device-prefix', 'panvk_bifrost',
     '--device-prefix', 'panvk_v6', '--device-prefix', 'panvk_v7',
+    '--device-prefix', 'panvk_valhall',
+    '--device-prefix', 'panvk_v10',
     '--beta', with_vulkan_beta.to_string()
   ],
   depend_files : vk_entrypoints_gen_depend_files,
@@ -56,11 +58,14 @@ panvk_deps = []
 panvk_flags = []
 panvk_per_arch_libs = []
 
-foreach arch : ['6', '7']
-  panvk_per_arch_libs += static_library(
-    'panvk_v@0@'.format(arch),
-    [
-      panvk_entrypoints[0],
+foreach arch : ['6', '7', '10']
+  _sources = [
+    panvk_entrypoints[0],
+  ]
+
+  if arch in ['6', '7']
+    # Bifrost
+    _sources += [
       'bifrost/panvk_vX_cmd_buffer.c',
       'bifrost/panvk_vX_cs.c',
       'bifrost/panvk_vX_descriptor_set.c',
@@ -73,7 +78,16 @@ foreach arch : ['6', '7']
       'bifrost/panvk_vX_nir_lower_descriptors.c',
       'bifrost/panvk_vX_pipeline.c',
       'bifrost/panvk_vX_shader.c',
-    ],
+    ]
+  else
+    # Valhall
+    _sources += [
+    ]
+  endif
+
+  panvk_per_arch_libs += static_library(
+    'panvk_v@0@'.format(arch),
+    _sources,
     include_directories : [
       inc_include,
       inc_src,

@@ -1125,7 +1125,7 @@ VK_DEFINE_NONDISP_HANDLE_CASTS(panvk_sampler, base, VkSampler,
 
 #define panvk_arch_name(name, version) panvk_##version##_##name
 
-#define panvk_arch_dispatch(arch, name, ...)                                   \
+#define panvk_bi_arch_dispatch(arch, name, ...)                                \
    do {                                                                        \
       switch (arch) {                                                          \
       case 6:                                                                  \
@@ -1140,16 +1140,22 @@ VK_DEFINE_NONDISP_HANDLE_CASTS(panvk_sampler, base, VkSampler,
    } while (0)
 
 #ifdef PAN_ARCH
+
 #if PAN_ARCH == 6
 #define panvk_per_arch(name) panvk_arch_name(name, v6)
 #elif PAN_ARCH == 7
 #define panvk_per_arch(name) panvk_arch_name(name, v7)
+#elif PAN_ARCH == 10
+#define panvk_per_arch(name) panvk_arch_name(name, v10)
 #endif
+
 #include "bifrost/panvk_vX_cmd_buffer.h"
 #include "bifrost/panvk_vX_cs.h"
 #include "bifrost/panvk_vX_device.h"
 #include "bifrost/panvk_vX_meta.h"
+
 #else
+
 #define PAN_ARCH             6
 #define panvk_per_arch(name) panvk_arch_name(name, v6)
 #include "bifrost/panvk_vX_cmd_buffer.h"
@@ -1158,6 +1164,7 @@ VK_DEFINE_NONDISP_HANDLE_CASTS(panvk_sampler, base, VkSampler,
 #include "bifrost/panvk_vX_meta.h"
 #undef PAN_ARCH
 #undef panvk_per_arch
+
 #define PAN_ARCH             7
 #define panvk_per_arch(name) panvk_arch_name(name, v7)
 #include "bifrost/panvk_vX_cmd_buffer.h"
@@ -1166,6 +1173,13 @@ VK_DEFINE_NONDISP_HANDLE_CASTS(panvk_sampler, base, VkSampler,
 #include "bifrost/panvk_vX_meta.h"
 #undef PAN_ARCH
 #undef panvk_per_arch
+
+#define PAN_ARCH             10
+#define panvk_per_arch(name) panvk_arch_name(name, v10)
+/* TODO */
+#undef PAN_ARCH
+#undef panvk_per_arch
+
 #endif
 
 #ifdef PAN_ARCH
