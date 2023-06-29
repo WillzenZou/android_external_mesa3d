@@ -82,6 +82,9 @@ foreach arch : ['6', '7', '10']
   else
     # Valhall
     _sources += [
+      'valhall/panvk_vX_cmd_buffer.c',
+      'valhall/panvk_vX_descriptor_set.c',
+      'valhall/panvk_vX_device.c',
     ]
   endif
 

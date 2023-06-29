@@ -819,7 +819,7 @@ panvk_queue_init(struct panvk_device *device, struct panvk_queue *queue,
       queue->vk.driver_submit = panvk_v7_queue_submit;
       break;
    case 10:
-      // TODO: queue->vk.driver_submit = panvk_v10_queue_submit;
+      queue->vk.driver_submit = panvk_v10_queue_submit;
       break;
    default:
       unreachable("Invalid arch");
@@ -867,7 +867,7 @@ panvk_CreateDevice(VkPhysicalDevice physicalDevice,
    case 10:
       base_dev_entrypoints = &panvk_valhall_device_entrypoints;
       dev_entrypoints = &panvk_v10_device_entrypoints;
-      cmd_buffer_ops = NULL; // TODO: &panvk_v10_cmd_buffer_ops;
+      cmd_buffer_ops = &panvk_v10_cmd_buffer_ops;
       break;
    default:
       unreachable("Unsupported architecture");
