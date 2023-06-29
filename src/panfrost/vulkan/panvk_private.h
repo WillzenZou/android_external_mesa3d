@@ -1092,6 +1092,9 @@ VK_DEFINE_NONDISP_HANDLE_CASTS(panvk_sampler, base, VkSampler,
 #include "bifrost/panvk_vX_device.h"
 #include "bifrost/panvk_vX_meta.h"
 
+#include "valhall/panvk_vX_device.h"
+#include "valhall/panvk_vX_cmd_buffer.h"
+
 #else
 
 #define PAN_ARCH             6
@@ -1114,7 +1117,8 @@ VK_DEFINE_NONDISP_HANDLE_CASTS(panvk_sampler, base, VkSampler,
 
 #define PAN_ARCH             10
 #define panvk_per_arch(name) panvk_arch_name(name, v10)
-/* TODO */
+#include "valhall/panvk_vX_device.h"
+#include "valhall/panvk_vX_cmd_buffer.h"
 #undef PAN_ARCH
 #undef panvk_per_arch
 
