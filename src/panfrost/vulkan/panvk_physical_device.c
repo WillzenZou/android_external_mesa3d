@@ -106,7 +106,7 @@ get_features(const struct panvk_physical_device *device,
       .uniformAndStorageBuffer16BitAccess = false,
       .storagePushConstant16 = false,
       .storageInputOutput16 = false,
-      .multiview = false,
+      .multiview = true,
       .multiviewGeometryShader = false,
       .multiviewTessellationShader = false,
       .variablePointersStorageBuffer = true,
@@ -599,7 +599,7 @@ panvk_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
    };
 
    pProperties->properties = (VkPhysicalDeviceProperties){
-      .apiVersion = VK_MAKE_VERSION(1, 0, VK_HEADER_VERSION),
+      .apiVersion = VK_MAKE_API_VERSION(0, 1, 1, VK_HEADER_VERSION),
       .driverVersion = vk_get_driver_version(),
 
       /* Arm vendor ID. */
