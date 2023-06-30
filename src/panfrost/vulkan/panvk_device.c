@@ -121,7 +121,7 @@ static const struct debug_control panvk_debug_options[] = {
 #define PANVK_USE_WSI_PLATFORM
 #endif
 
-#define PANVK_API_VERSION VK_MAKE_VERSION(1, 0, VK_HEADER_VERSION)
+#define PANVK_API_VERSION VK_MAKE_API_VERSION(0, 1, 1, VK_HEADER_VERSION)
 
 VkResult
 panvk_EnumerateInstanceVersion(uint32_t *pApiVersion)
@@ -433,7 +433,7 @@ panvk_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
       .uniformAndStorageBuffer16BitAccess = false,
       .storagePushConstant16 = false,
       .storageInputOutput16 = false,
-      .multiview = false,
+      .multiview = true,
       .multiviewGeometryShader = false,
       .multiviewTessellationShader = false,
       .variablePointersStorageBuffer = true,
