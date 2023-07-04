@@ -60,4 +60,6 @@ void pandecode_cs(mali_ptr queue_gpu_va, uint32_t size, unsigned gpu_id,
 
 void pandecode_abort_on_fault(uint64_t jc_gpu_va, unsigned gpu_id);
 
+void pandecode_dump_mappings(void);
+
 #endif /* __MMAP_TRACE_H__ */

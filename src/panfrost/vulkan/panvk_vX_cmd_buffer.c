@@ -431,7 +431,7 @@ panvk_per_arch(cmd_get_tiler_context)(struct panvk_cmd_buffer *cmdbuf,
    panvk_per_arch(emit_tiler_context)(cmdbuf->device, width, height, &desc);
    memcpy(batch->tiler.descs.cpu, batch->tiler.templ,
           pan_size(TILER_CONTEXT) + pan_size(TILER_HEAP));
-   batch->tiler.ctx.bifrost = batch->tiler.descs.gpu;
+   batch->tiler.ctx.bifrost.ctx = batch->tiler.descs.gpu;
 }
 
 void

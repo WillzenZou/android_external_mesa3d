@@ -110,6 +110,11 @@ struct pipe_screen *kmsro_drm_screen_create(int fd,
          .create_screen = panfrost_drm_screen_create_renderonly,
          .create_for_resource = panfrost_create_kms_dumb_buffer_for_resource,
       },
+      {
+         .name = "panthor",
+         .create_screen = panfrost_drm_screen_create_renderonly,
+         .create_for_resource = panfrost_create_kms_dumb_buffer_for_resource,
+      },
 #endif
 
 #if defined(GALLIUM_V3D)

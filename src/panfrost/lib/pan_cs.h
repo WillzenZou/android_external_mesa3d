@@ -76,11 +76,14 @@ struct pan_tiler_context {
    uint32_t vertex_count;
 
    union {
-      mali_ptr bifrost;
       struct {
          bool disable;
          struct panfrost_bo *polygon_list;
       } midgard;
+      struct {
+         mali_ptr ctx;
+         mali_ptr heap;
+      } bifrost;
    };
 };
 
@@ -168,11 +171,14 @@ void GENX(pan_emit_tiler_heap)(const struct panfrost_device *dev, void *out);
 void GENX(pan_emit_tiler_ctx)(const struct panfrost_device *dev,
                               unsigned fb_width, unsigned fb_height,
                               unsigned nr_samples, bool first_provoking_vertex,
-                              mali_ptr heap, void *out);
+                              mali_ptr heap, mali_ptr geom_buf, void *out);
 #endif
 
+#if PAN_ARCH <= 9
 void GENX(pan_emit_fragment_job)(const struct pan_fb_info *fb, mali_ptr fbd,
                                  void *out);
+#endif
+
 #endif /* ifdef PAN_ARCH */
 
 #endif

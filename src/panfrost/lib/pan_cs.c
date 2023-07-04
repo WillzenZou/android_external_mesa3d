@@ -713,6 +713,7 @@ GENX(pan_emit_fbd)(const struct panfrost_device *dev,
 
       cfg.sample_locations =
          panfrost_sample_positions(dev, pan_sample_pattern(fb->nr_samples));
+      assert(cfg.sample_locations != 0);
       cfg.pre_frame_0 = pan_fix_frame_shader_mode(fb->bifrost.pre_post.modes[0],
                                                   force_clean_write);
       cfg.pre_frame_1 = pan_fix_frame_shader_mode(fb->bifrost.pre_post.modes[1],
@@ -720,7 +721,7 @@ GENX(pan_emit_fbd)(const struct panfrost_device *dev,
       cfg.post_frame = pan_fix_frame_shader_mode(fb->bifrost.pre_post.modes[2],
                                                  force_clean_write);
       cfg.frame_shader_dcds = fb->bifrost.pre_post.dcds.gpu;
-      cfg.tiler = tiler_ctx->bifrost;
+      cfg.tiler = tiler_ctx->bifrost.ctx;
 #endif
       cfg.width = fb->width;
       cfg.height = fb->height;
@@ -925,7 +926,7 @@ GENX(pan_emit_tiler_heap)(const struct panfrost_device *dev, void *out)
    pan_pack(out, TILER_HEAP, heap) {
       heap.size = dev->tiler_heap->kmod_bo->size;
       heap.base = dev->tiler_heap->ptr.gpu;
-      heap.bottom = dev->tiler_heap->ptr.gpu;
+      heap.bottom = dev->tiler_heap->ptr.gpu + 64;
       heap.top = dev->tiler_heap->ptr.gpu + panfrost_bo_size(dev->tiler_heap);
    }
 }
@@ -933,14 +934,15 @@ GENX(pan_emit_tiler_heap)(const struct panfrost_device *dev, void *out)
 void
 GENX(pan_emit_tiler_ctx)(const struct panfrost_device *dev, unsigned fb_width,
                          unsigned fb_height, unsigned nr_samples,
-                         bool first_provoking_vertex, mali_ptr heap, void *out)
+                         bool first_provoking_vertex, mali_ptr heap,
+                         mali_ptr geom_buf, void *out)
 {
    unsigned max_levels = dev->tiler_features.max_levels;
    assert(max_levels >= 2);
 
    pan_pack(out, TILER_CONTEXT, tiler) {
       /* TODO: Select hierarchy mask more effectively */
-      tiler.hierarchy_mask = (max_levels >= 8) ? 0xFF : 0x28;
+      tiler.hierarchy_mask = (max_levels >= 8) ? 0xFE : 0x28;
 
       /* For large framebuffers, disable the smallest bin size to
        * avoid pathological tiler memory usage. Required to avoid OOM
@@ -957,10 +959,20 @@ GENX(pan_emit_tiler_ctx)(const struct panfrost_device *dev, unsigned fb_width,
 #if PAN_ARCH >= 9
       tiler.first_provoking_vertex = first_provoking_vertex;
 #endif
+#if PAN_ARCH >= 10
+      /* Temporary geometry buffer is placed just before the HEAP
+       * descriptor and is 64KB large.
+       *
+       * Note: DDK assigns this pointer in the CS.
+       */
+#define POSITION_FIFO_SIZE (64 * 1024)
+      tiler.geometry_buffer = geom_buf;
+#endif
    }
 }
 #endif
 
+#if PAN_ARCH <= 9
 void
 GENX(pan_emit_fragment_job)(const struct pan_fb_info *fb, mali_ptr fbd,
                             void *out)
@@ -986,3 +998,4 @@ GENX(pan_emit_fragment_job)(const struct pan_fb_info *fb, mali_ptr fbd,
 #endif
    }
 }
+#endif

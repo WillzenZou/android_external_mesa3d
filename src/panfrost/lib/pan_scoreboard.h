@@ -54,7 +54,7 @@ struct pan_scoreboard {
    unsigned write_value_index;
 };
 
-#ifdef PAN_ARCH
+#if defined(PAN_ARCH) && PAN_ARCH <= 9
 /*
  * There are various types of Mali jobs:
  *
