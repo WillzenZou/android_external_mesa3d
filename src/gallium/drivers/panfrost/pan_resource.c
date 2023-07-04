@@ -191,7 +191,7 @@ panfrost_resource_get_handle(struct pipe_screen *pscreen,
    if (handle->type == WINSYS_HANDLE_TYPE_KMS && dev->ro) {
       return renderonly_get_handle(scanout, handle);
    } else if (handle->type == WINSYS_HANDLE_TYPE_KMS) {
-      handle->handle = rsrc->image.data.bo->gem_handle;
+      handle->handle = panfrost_bo_handle(rsrc->image.data.bo);
    } else if (handle->type == WINSYS_HANDLE_TYPE_FD) {
       int fd = panfrost_bo_export(rsrc->image.data.bo);
 
@@ -1003,9 +1003,10 @@ panfrost_ptr_map(struct pipe_context *pctx, struct pipe_resource *resource,
    /* If we haven't already mmaped, now's the time */
    panfrost_bo_mmap(bo);
 
-   if (dev->debug & (PAN_DBG_TRACE | PAN_DBG_SYNC))
-      pandecode_inject_mmap(dev->decode_ctx, bo->ptr.gpu, bo->ptr.cpu, bo->size,
-                            NULL);
+   if (dev->debug & (PAN_DBG_TRACE | PAN_DBG_SYNC)) {
+      pandecode_inject_mmap(dev->decode_ctx, bo->ptr.gpu, bo->ptr.cpu,
+                            panfrost_bo_size(bo), NULL);
+   }
 
    /* Upgrade writes to uninitialized ranges to UNSYNCHRONIZED */
    if ((usage & PIPE_MAP_WRITE) && resource->target == PIPE_BUFFER &&
@@ -1071,12 +1072,16 @@ panfrost_ptr_map(struct pipe_context *pctx, struct pipe_resource *resource,
           * importer/exporter wouldn't see the change we're
           * doing to it.
           */
-         if (!(bo->flags & PAN_BO_SHARED))
-            newbo = panfrost_bo_create(dev, bo->size, flags, bo->label);
+         if (!(bo->flags & PAN_BO_SHARED)) {
+            newbo =
+               panfrost_bo_create(dev, panfrost_bo_size(bo), flags, bo->label);
+	 }
 
          if (newbo) {
-            if (copy_resource)
-               memcpy(newbo->ptr.cpu, rsrc->image.data.bo->ptr.cpu, bo->size);
+            if (copy_resource) {
+               memcpy(newbo->ptr.cpu, rsrc->image.data.bo->ptr.cpu,
+                      panfrost_bo_size(bo));
+	    }
 
             /* Swap the pointers, dropping a reference to
              * the old BO which is no long referenced from
@@ -1318,7 +1323,7 @@ panfrost_ptr_unmap(struct pipe_context *pctx, struct pipe_transfer *transfer)
             if (panfrost_should_linear_convert(dev, prsrc, transfer)) {
                panfrost_resource_setup(dev, prsrc, DRM_FORMAT_MOD_LINEAR,
                                        prsrc->image.layout.format);
-               if (prsrc->image.layout.data_size > bo->size) {
+               if (prsrc->image.layout.data_size > panfrost_bo_size(bo)) {
                   const char *label = bo->label;
                   panfrost_bo_unreference(bo);
                   bo = prsrc->image.data.bo = panfrost_bo_create(

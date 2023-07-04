@@ -561,11 +561,11 @@ panfrost_destroy(struct pipe_context *pipe)
    panfrost_pool_cleanup(&panfrost->descs);
    panfrost_pool_cleanup(&panfrost->shaders);
 
-   drmSyncobjDestroy(dev->fd, panfrost->in_sync_obj);
+   drmSyncobjDestroy(panfrost_device_fd(dev), panfrost->in_sync_obj);
    if (panfrost->in_sync_fd != -1)
       close(panfrost->in_sync_fd);
 
-   drmSyncobjDestroy(dev->fd, panfrost->syncobj);
+   drmSyncobjDestroy(panfrost_device_fd(dev), panfrost->syncobj);
    ralloc_free(pipe);
 }
 
@@ -859,7 +859,7 @@ panfrost_fence_server_sync(struct pipe_context *pctx,
    struct panfrost_context *ctx = pan_context(pctx);
    int fd = -1, ret;
 
-   ret = drmSyncobjExportSyncFile(dev->fd, f->syncobj, &fd);
+   ret = drmSyncobjExportSyncFile(panfrost_device_fd(dev), f->syncobj, &fd);
    assert(!ret);
 
    sync_accumulate("panfrost", &ctx->in_sync_fd, fd);
@@ -971,12 +971,13 @@ panfrost_create_context(struct pipe_screen *screen, void *priv, unsigned flags)
    /* Create a syncobj in a signaled state. Will be updated to point to the
     * last queued job out_sync every time we submit a new job.
     */
-   ret = drmSyncobjCreate(dev->fd, DRM_SYNCOBJ_CREATE_SIGNALED, &ctx->syncobj);
+   ret = drmSyncobjCreate(panfrost_device_fd(dev), DRM_SYNCOBJ_CREATE_SIGNALED,
+                          &ctx->syncobj);
    assert(!ret && ctx->syncobj);
 
    /* Sync object/FD used for NATIVE_FENCE_FD. */
    ctx->in_sync_fd = -1;
-   ret = drmSyncobjCreate(dev->fd, 0, &ctx->in_sync_obj);
+   ret = drmSyncobjCreate(panfrost_device_fd(dev), 0, &ctx->in_sync_obj);
    assert(!ret);
 
    return gallium;
