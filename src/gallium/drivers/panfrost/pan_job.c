@@ -302,7 +302,7 @@ panfrost_batch_uses_resource(struct panfrost_batch *batch,
                              struct panfrost_resource *rsrc)
 {
    /* A resource is used iff its current BO is used */
-   uint32_t handle = rsrc->image.data.bo->gem_handle;
+   uint32_t handle = panfrost_bo_handle(rsrc->image.data.bo);
    unsigned size = util_dynarray_num_elements(&batch->bos, pan_bo_access);
 
    /* If out of bounds, certainly not used */
@@ -320,7 +320,8 @@ panfrost_batch_add_bo_old(struct panfrost_batch *batch, struct panfrost_bo *bo,
    if (!bo)
       return;
 
-   pan_bo_access *entry = panfrost_batch_get_bo_access(batch, bo->gem_handle);
+   pan_bo_access *entry =
+      panfrost_batch_get_bo_access(batch, panfrost_bo_handle(bo));
    pan_bo_access old_flags = *entry;
 
    if (!old_flags) {
@@ -411,7 +412,7 @@ panfrost_batch_get_scratchpad(struct panfrost_batch *batch,
       size_per_thread, thread_tls_alloc, core_id_range);
 
    if (batch->scratchpad) {
-      assert(batch->scratchpad->size >= size);
+      assert(panfrost_bo_size(batch->scratchpad) >= size);
    } else {
       batch->scratchpad =
          panfrost_batch_create_bo(batch, size, PAN_BO_INVISIBLE,
@@ -428,7 +429,7 @@ panfrost_batch_get_shared_memory(struct panfrost_batch *batch, unsigned size,
                                  unsigned workgroup_count)
 {
    if (batch->shared_memory) {
-      assert(batch->shared_memory->size >= size);
+      assert(panfrost_bo_size(batch->shared_memory) >= size);
    } else {
       batch->shared_memory = panfrost_batch_create_bo(
          batch, size, PAN_BO_INVISIBLE, PIPE_SHADER_VERTEX,
@@ -612,8 +613,8 @@ panfrost_batch_submit_ioctl(struct panfrost_batch *batch,
       in_syncs[submit.in_sync_count++] = in_sync;
 
    if (ctx->in_sync_fd >= 0) {
-      ret =
-         drmSyncobjImportSyncFile(dev->fd, ctx->in_sync_obj, ctx->in_sync_fd);
+      ret = drmSyncobjImportSyncFile(panfrost_device_fd(dev), ctx->in_sync_obj,
+                                     ctx->in_sync_fd);
       assert(!ret);
 
       in_syncs[submit.in_sync_count++] = ctx->in_sync_obj;
@@ -663,17 +664,21 @@ panfrost_batch_submit_ioctl(struct panfrost_batch *batch,
     * least one tiler job. Tiler heap is written by tiler jobs and read
     * by fragment jobs (the polygon list is coming from this heap).
     */
-   if (batch->scoreboard.first_tiler)
-      bo_handles[submit.bo_handle_count++] = dev->tiler_heap->gem_handle;
+   if (batch->scoreboard.first_tiler) {
+      bo_handles[submit.bo_handle_count++] =
+         panfrost_bo_handle(dev->tiler_heap);
+   }
 
    /* Always used on Bifrost, occassionally used on Midgard */
-   bo_handles[submit.bo_handle_count++] = dev->sample_positions->gem_handle;
+   bo_handles[submit.bo_handle_count++] =
+      panfrost_bo_handle(dev->sample_positions);
 
    submit.bo_handles = (u64)(uintptr_t)bo_handles;
    if (ctx->is_noop)
       ret = 0;
    else
-      ret = drmIoctl(dev->fd, DRM_IOCTL_PANFROST_SUBMIT, &submit);
+      ret =
+         drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANFROST_SUBMIT, &submit);
    free(bo_handles);
 
    if (ret)
@@ -682,17 +687,17 @@ panfrost_batch_submit_ioctl(struct panfrost_batch *batch,
    /* Trace the job if we're doing that */
    if (dev->debug & (PAN_DBG_TRACE | PAN_DBG_SYNC)) {
       /* Wait so we can get errors reported back */
-      drmSyncobjWait(dev->fd, &out_sync, 1, INT64_MAX, 0, NULL);
+      drmSyncobjWait(panfrost_device_fd(dev), &out_sync, 1, INT64_MAX, 0, NULL);
 
       if (dev->debug & PAN_DBG_TRACE)
-         pandecode_jc(submit.jc, dev->gpu_id);
+         pandecode_jc(submit.jc, panfrost_device_gpu_id(dev));
 
       if (dev->debug & PAN_DBG_DUMP)
          pandecode_dump_mappings();
 
       /* Jobs won't be complete if blackhole rendering, that's ok */
       if (!ctx->is_noop && dev->debug & PAN_DBG_SYNC)
-         pandecode_abort_on_fault(submit.jc, dev->gpu_id);
+         pandecode_abort_on_fault(submit.jc, panfrost_device_gpu_id(dev));
    }
 
    return 0;
