@@ -227,6 +227,17 @@ struct panfrost_context {
 
    int in_sync_fd;
    uint32_t in_sync_obj;
+
+   struct {
+      uint32_t handle;
+   } group;
+
+   struct {
+      uint32_t handle;
+      mali_ptr tiler_heap_ctx_gpu_va;
+      mali_ptr first_heap_chunk_gpu_va;
+      struct panfrost_bo *desc_bo;
+   } heap;
 };
 
 /* Corresponds to the CSO */

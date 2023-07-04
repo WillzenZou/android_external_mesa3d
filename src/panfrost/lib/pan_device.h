@@ -36,6 +36,7 @@
 #include "util/list.h"
 #include "util/sparse_array.h"
 #include "util/u_dynarray.h"
+#include "util/vma.h"
 
 #include "panfrost/util/pan_ir.h"
 #include "pan_pool.h"

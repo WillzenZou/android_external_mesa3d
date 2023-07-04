@@ -67,4 +67,6 @@ void pandecode_cs(struct pandecode_context *ctx, mali_ptr queue_gpu_va,
 void pandecode_abort_on_fault(struct pandecode_context *ctx, uint64_t jc_gpu_va,
                               unsigned gpu_id);
 
+void pandecode_dump_mappings(struct pandecode_context *ctx);
+
 #endif /* __MMAP_TRACE_H__ */
