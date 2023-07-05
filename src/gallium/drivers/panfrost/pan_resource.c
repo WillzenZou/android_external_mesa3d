@@ -1324,10 +1324,12 @@ panfrost_ptr_unmap(struct pipe_context *pctx, struct pipe_transfer *transfer)
                panfrost_resource_setup(dev, prsrc, DRM_FORMAT_MOD_LINEAR,
                                        prsrc->image.layout.format);
                if (prsrc->image.layout.data_size > panfrost_bo_size(bo)) {
+                  uint32_t flags = bo->flags & ~PAN_BO_DELAY_MMAP;
                   const char *label = bo->label;
+
                   panfrost_bo_unreference(bo);
                   bo = prsrc->image.data.bo = panfrost_bo_create(
-                     dev, prsrc->image.layout.data_size, 0, label);
+                     dev, prsrc->image.layout.data_size, flags, label);
                   assert(bo);
                }
 
