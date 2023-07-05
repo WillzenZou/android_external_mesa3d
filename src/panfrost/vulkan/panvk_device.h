@@ -10,10 +10,10 @@
 
 #include "vk_device.h"
 
+#include "bifrost/panvk_meta.h"
 #include "panvk_instance.h"
 #include "panvk_macros.h"
 #include "panvk_mempool.h"
-#include "panvk_meta.h"
 #include "panvk_physical_device.h"
 
 #include "kmod/pan_kmod.h"
@@ -35,7 +35,11 @@ struct panvk_device {
    struct panvk_priv_bo *tiler_heap;
    struct panvk_priv_bo *sample_positions;
 
-   struct panvk_meta meta;
+   union {
+      struct {
+         struct panvk_meta meta;
+      } bifrost;
+   };
 
    struct vk_device_dispatch_table cmd_dispatch;
 
