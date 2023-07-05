@@ -724,9 +724,14 @@ panfrost_resource_create_with_modifier(struct pipe_screen *screen,
    } else {
       /* We create a BO immediately but don't bother mapping, since we don't
        * care to map e.g. FBOs which the CPU probably won't touch */
+      uint32_t flags = PAN_BO_DELAY_MMAP;
 
-      so->image.data.bo = panfrost_bo_create(dev, so->image.layout.data_size,
-                                             PAN_BO_DELAY_MMAP, label);
+      /* If the resource is never exported, we can make the BO private. */
+      if (template->bind & PAN_BIND_SHARED_MASK)
+         flags |= PAN_BO_SHAREABLE;
+
+      so->image.data.bo =
+         panfrost_bo_create(dev, so->image.layout.data_size, flags, label);
 
       so->constant_stencil = true;
    }
