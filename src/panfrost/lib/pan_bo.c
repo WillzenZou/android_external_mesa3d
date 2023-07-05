@@ -65,6 +65,8 @@ to_kmod_bo_flags(uint32_t flags)
       kmod_bo_flags |= PAN_KMOD_BO_FLAG_ALLOC_ON_FAULT;
    if (flags & PAN_BO_INVISIBLE)
       kmod_bo_flags |= PAN_KMOD_BO_FLAG_NO_MMAP;
+   if (flags & PAN_BO_GPU_UNCACHED)
+      kmod_bo_flags |= PAN_KMOD_BO_FLAG_GPU_UNCACHED;
 
    return kmod_bo_flags;
 }

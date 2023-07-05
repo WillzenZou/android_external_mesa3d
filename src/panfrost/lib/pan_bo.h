@@ -56,6 +56,9 @@
  * PAN_BO_SHARED if the BO has not been exported yet */
 #define PAN_BO_SHAREABLE (1 << 5)
 
+/* BO should be mapped uncached in the GPU VM. */
+#define PAN_BO_GPU_UNCACHED (1 << 6)
+
 /* GPU access flags */
 
 /* BO is either shared (can be accessed by more than one GPU batch) or private
