@@ -14,6 +14,8 @@
 #include "util/os_mman.h"
 #include "util/ralloc.h"
 
+#include "kmod/panthor_kmod.h"
+
 struct pan_kmod_dev;
 
 enum pan_kmod_vm_flags {
