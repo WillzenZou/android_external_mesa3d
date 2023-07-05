@@ -80,6 +80,26 @@ panvk_fill_image_desc(struct panvk_image_desc *desc,
       desc->depth = view->vk.layer_count - 1;
 }
 
+static void
+panvk_set_dyn_ssbo_pointers(struct panvk_descriptor_state *desc_state,
+                            unsigned dyn_ssbo_offset,
+                            struct panvk_descriptor_set *set)
+{
+   struct panvk_sysvals *sysvals = &desc_state->sysvals;
+
+   for (unsigned i = 0; i < set->layout->num_dyn_ssbos; i++) {
+      const struct panvk_buffer_desc *ssbo =
+         &desc_state->dyn.ssbos[dyn_ssbo_offset + i];
+
+      sysvals->dyn_ssbos[dyn_ssbo_offset + i] = (struct panvk_ssbo_addr){
+         .base_addr = panvk_buffer_gpu_ptr(ssbo->buffer, ssbo->offset),
+         .size = panvk_buffer_range(ssbo->buffer, ssbo->offset, ssbo->size),
+      };
+   }
+
+   desc_state->sysvals_ptr = 0;
+}
+
 VkResult
 panvk_per_arch(CreateDescriptorSetLayout)(
    VkDevice _device, const VkDescriptorSetLayoutCreateInfo *pCreateInfo,
@@ -884,6 +904,84 @@ panvk_per_arch(UpdateDescriptorSets)(
          unreachable("Unsupported descriptor type");
       }
    }
+}
+
+
+void
+panvk_per_arch(CmdBindDescriptorSets)(VkCommandBuffer commandBuffer,
+                                      VkPipelineBindPoint pipelineBindPoint,
+                                      VkPipelineLayout layout, uint32_t firstSet,
+                                      uint32_t descriptorSetCount,
+                                      const VkDescriptorSet *pDescriptorSets,
+                                      uint32_t dynamicOffsetCount,
+                                      const uint32_t *pDynamicOffsets)
+{
+   VK_FROM_HANDLE(panvk_cmd_buffer, cmdbuf, commandBuffer);
+   VK_FROM_HANDLE(panvk_pipeline_layout, playout, layout);
+
+   struct panvk_descriptor_state *descriptors_state =
+      &cmdbuf->bind_points[pipelineBindPoint].desc_state;
+
+   unsigned dynoffset_idx = 0;
+   for (unsigned i = 0; i < descriptorSetCount; ++i) {
+      unsigned idx = i + firstSet;
+      VK_FROM_HANDLE(panvk_descriptor_set, set, pDescriptorSets[i]);
+
+      descriptors_state->sets[idx] = set;
+
+      if (set->layout->num_dyn_ssbos || set->layout->num_dyn_ubos) {
+         unsigned dyn_ubo_offset = playout->sets[idx].dyn_ubo_offset;
+         unsigned dyn_ssbo_offset = playout->sets[idx].dyn_ssbo_offset;
+
+         for (unsigned b = 0; b < set->layout->binding_count; b++) {
+            for (unsigned e = 0; e < set->layout->bindings[b].array_size; e++) {
+               struct panvk_buffer_desc *bdesc = NULL;
+
+               if (set->layout->bindings[b].type ==
+                   VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC) {
+                  bdesc = &descriptors_state->dyn.ubos[dyn_ubo_offset++];
+                  *bdesc =
+                     set->dyn_ubos[set->layout->bindings[b].dyn_ubo_idx + e];
+               } else if (set->layout->bindings[b].type ==
+                          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC) {
+                  bdesc = &descriptors_state->dyn.ssbos[dyn_ssbo_offset++];
+                  *bdesc =
+                     set->dyn_ssbos[set->layout->bindings[b].dyn_ssbo_idx + e];
+               }
+
+               if (bdesc) {
+                  bdesc->offset += pDynamicOffsets[dynoffset_idx++];
+               }
+            }
+         }
+      }
+
+      if (set->layout->num_dyn_ssbos) {
+         panvk_set_dyn_ssbo_pointers(descriptors_state,
+                                     playout->sets[idx].dyn_ssbo_offset, set);
+      }
+
+      if (set->layout->num_dyn_ssbos)
+         descriptors_state->dirty |= PANVK_DYNAMIC_SSBO;
+
+      if (set->layout->num_ubos || set->layout->num_dyn_ubos ||
+          set->layout->num_dyn_ssbos || set->layout->desc_ubo_size)
+         descriptors_state->ubos = 0;
+
+      if (set->layout->num_textures)
+         descriptors_state->textures = 0;
+
+      if (set->layout->num_samplers)
+         descriptors_state->samplers = 0;
+
+      if (set->layout->num_imgs) {
+         descriptors_state->vs_attrib_bufs =
+            descriptors_state->non_vs_attrib_bufs = 0;
+         descriptors_state->vs_attribs = descriptors_state->non_vs_attribs = 0;
+      }
+   }
+
+   assert(dynoffset_idx == dynamicOffsetCount);
 }
 
 void
