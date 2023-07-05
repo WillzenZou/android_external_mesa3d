@@ -813,7 +813,11 @@ struct panvk_pipeline {
    struct panvk_varyings_info varyings;
    struct panvk_attribs_info attribs;
 
-   const struct panvk_pipeline_layout *layout;
+   union {
+      struct {
+         const struct panvk_pipeline_layout *layout;
+      } bifrost;
+   };
 
    unsigned active_stages;
 

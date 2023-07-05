@@ -81,7 +81,7 @@ panvk_pipeline_builder_create_pipeline(struct panvk_pipeline_builder *builder,
    if (!pipeline)
       return VK_ERROR_OUT_OF_HOST_MEMORY;
 
-   pipeline->layout = builder->layout;
+   pipeline->bifrost.layout = builder->layout;
    *out_pipeline = pipeline;
    return VK_SUCCESS;
 }

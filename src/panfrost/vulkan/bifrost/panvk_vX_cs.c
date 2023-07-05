@@ -328,22 +328,22 @@ panvk_per_arch(emit_ubos)(const struct panvk_pipeline *pipeline,
    panvk_per_arch(emit_ubo)(state->sysvals_ptr, sizeof(state->sysvals),
                             &ubos[PANVK_SYSVAL_UBO_INDEX]);
 
-   if (pipeline->layout->push_constants.size) {
+   if (pipeline->bifrost.layout->push_constants.size) {
       panvk_per_arch(emit_ubo)(
          state->push_constants,
-         ALIGN_POT(pipeline->layout->push_constants.size, 16),
+         ALIGN_POT(pipeline->bifrost.layout->push_constants.size, 16),
          &ubos[PANVK_PUSH_CONST_UBO_INDEX]);
    } else {
       memset(&ubos[PANVK_PUSH_CONST_UBO_INDEX], 0, sizeof(*ubos));
    }
 
-   for (unsigned s = 0; s < pipeline->layout->vk.set_count; s++) {
+   for (unsigned s = 0; s < pipeline->bifrost.layout->vk.set_count; s++) {
       const struct panvk_descriptor_set_layout *set_layout =
-         vk_to_panvk_descriptor_set_layout(pipeline->layout->vk.set_layouts[s]);
+         vk_to_panvk_descriptor_set_layout(pipeline->bifrost.layout->vk.set_layouts[s]);
       const struct panvk_descriptor_set *set = state->sets[s];
 
       unsigned ubo_start =
-         panvk_pipeline_layout_ubo_start(pipeline->layout, s, false);
+         panvk_pipeline_layout_ubo_start(pipeline->bifrost.layout, s, false);
 
       if (!set) {
          unsigned all_ubos = set_layout->num_ubos + set_layout->num_dyn_ubos;
@@ -353,11 +353,11 @@ panvk_per_arch(emit_ubos)(const struct panvk_pipeline *pipeline,
                 set_layout->num_ubos * sizeof(*ubos));
 
          unsigned dyn_ubo_start =
-            panvk_pipeline_layout_ubo_start(pipeline->layout, s, true);
+            panvk_pipeline_layout_ubo_start(pipeline->bifrost.layout, s, true);
 
          for (unsigned i = 0; i < set_layout->num_dyn_ubos; i++) {
             const struct panvk_buffer_desc *bdesc =
-               &state->dyn.ubos[pipeline->layout->sets[s].dyn_ubo_offset + i];
+               &state->dyn.ubos[pipeline->bifrost.layout->sets[s].dyn_ubo_offset + i];
 
             mali_ptr address =
                panvk_buffer_gpu_ptr(bdesc->buffer, bdesc->offset);
