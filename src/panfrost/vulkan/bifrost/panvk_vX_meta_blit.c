@@ -221,15 +221,15 @@ panvk_per_arch(CmdResolveImage2)(VkCommandBuffer commandBuffer,
 void
 panvk_per_arch(meta_blit_init)(struct panvk_physical_device *dev)
 {
-   panvk_pool_init(&dev->meta.blitter.bin_pool, &dev->pdev, NULL,
+   panvk_pool_init(&dev->bifrost.meta.blitter.bin_pool, &dev->pdev, NULL,
                    PAN_BO_EXECUTE, 16 * 1024, "panvk_meta blitter binary pool",
                    false);
-   panvk_pool_init(&dev->meta.blitter.desc_pool, &dev->pdev, NULL, 0, 16 * 1024,
+   panvk_pool_init(&dev->bifrost.meta.blitter.desc_pool, &dev->pdev, NULL, 0, 16 * 1024,
                    "panvk_meta blitter descriptor pool", false);
    pan_blend_shaders_init(&dev->pdev);
    GENX(pan_blitter_init)
-   (&dev->pdev, &dev->meta.blitter.bin_pool.base,
-    &dev->meta.blitter.desc_pool.base);
+   (&dev->pdev, &dev->bifrost.meta.blitter.bin_pool.base,
+    &dev->bifrost.meta.blitter.desc_pool.base);
 }
 
 void
@@ -237,6 +237,6 @@ panvk_per_arch(meta_blit_cleanup)(struct panvk_physical_device *dev)
 {
    GENX(pan_blitter_cleanup)(&dev->pdev);
    pan_blend_shaders_cleanup(&dev->pdev);
-   panvk_pool_cleanup(&dev->meta.blitter.desc_pool);
-   panvk_pool_cleanup(&dev->meta.blitter.bin_pool);
+   panvk_pool_cleanup(&dev->bifrost.meta.blitter.desc_pool);
+   panvk_pool_cleanup(&dev->bifrost.meta.blitter.bin_pool);
 }

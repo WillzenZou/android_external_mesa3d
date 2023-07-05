@@ -573,7 +573,7 @@ panvk_meta_copy_img2img(struct panvk_cmd_buffer *cmdbuf,
    unsigned ms = dst->pimage.layout.nr_samples > 1 ? 1 : 0;
 
    mali_ptr rsd =
-      cmdbuf->device->physical_device->meta.copy.img2img[ms][texdimidx][fmtidx]
+      cmdbuf->device->physical_device->bifrost.meta.copy.img2img[ms][texdimidx][fmtidx]
          .rsd;
 
    struct pan_image_view srcview = {
@@ -702,7 +702,7 @@ panvk_meta_copy_img2img_init(struct panvk_physical_device *dev, bool is_ms)
    for (unsigned i = 0; i < ARRAY_SIZE(panvk_meta_copy_img2img_fmts); i++) {
       for (unsigned texdim = 1; texdim <= 3; texdim++) {
          unsigned texdimidx = panvk_meta_copy_tex_type(texdim, false);
-         assert(texdimidx < ARRAY_SIZE(dev->meta.copy.img2img[0]));
+         assert(texdimidx < ARRAY_SIZE(dev->bifrost.meta.copy.img2img[0]));
 
          /* No MSAA on 1D/3D textures */
          if (texdim != 2 && is_ms)
@@ -710,14 +710,14 @@ panvk_meta_copy_img2img_init(struct panvk_physical_device *dev, bool is_ms)
 
          struct pan_shader_info shader_info;
          mali_ptr shader = panvk_meta_copy_img2img_shader(
-            &dev->pdev, &dev->meta.bin_pool.base,
+            &dev->pdev, &dev->bifrost.meta.bin_pool.base,
             panvk_meta_copy_img2img_fmts[i].srcfmt,
             panvk_meta_copy_img2img_fmts[i].dstfmt,
             panvk_meta_copy_img2img_fmts[i].dstmask, texdim, false, is_ms,
             &shader_info);
-         dev->meta.copy.img2img[is_ms][texdimidx][i].rsd =
+         dev->bifrost.meta.copy.img2img[is_ms][texdimidx][i].rsd =
             panvk_meta_copy_to_img_emit_rsd(
-               &dev->pdev, &dev->meta.desc_pool.base, shader, &shader_info,
+               &dev->pdev, &dev->bifrost.meta.desc_pool.base, shader, &shader_info,
                panvk_meta_copy_img2img_fmts[i].dstfmt,
                panvk_meta_copy_img2img_fmts[i].dstmask, true);
          if (texdim == 3)
@@ -725,16 +725,16 @@ panvk_meta_copy_img2img_init(struct panvk_physical_device *dev, bool is_ms)
 
          memset(&shader_info, 0, sizeof(shader_info));
          texdimidx = panvk_meta_copy_tex_type(texdim, true);
-         assert(texdimidx < ARRAY_SIZE(dev->meta.copy.img2img[0]));
+         assert(texdimidx < ARRAY_SIZE(dev->bifrost.meta.copy.img2img[0]));
          shader = panvk_meta_copy_img2img_shader(
-            &dev->pdev, &dev->meta.bin_pool.base,
+            &dev->pdev, &dev->bifrost.meta.bin_pool.base,
             panvk_meta_copy_img2img_fmts[i].srcfmt,
             panvk_meta_copy_img2img_fmts[i].dstfmt,
             panvk_meta_copy_img2img_fmts[i].dstmask, texdim, true, is_ms,
             &shader_info);
-         dev->meta.copy.img2img[is_ms][texdimidx][i].rsd =
+         dev->bifrost.meta.copy.img2img[is_ms][texdimidx][i].rsd =
             panvk_meta_copy_to_img_emit_rsd(
-               &dev->pdev, &dev->meta.desc_pool.base, shader, &shader_info,
+               &dev->pdev, &dev->bifrost.meta.desc_pool.base, shader, &shader_info,
                panvk_meta_copy_img2img_fmts[i].dstfmt,
                panvk_meta_copy_img2img_fmts[i].dstmask, true);
       }
@@ -1030,7 +1030,7 @@ panvk_meta_copy_buf2img(struct panvk_cmd_buffer *cmdbuf,
    unsigned fmtidx = panvk_meta_copy_buf2img_format_idx(key);
 
    mali_ptr rsd =
-      cmdbuf->device->physical_device->meta.copy.buf2img[fmtidx].rsd;
+      cmdbuf->device->physical_device->bifrost.meta.copy.buf2img[fmtidx].rsd;
 
    const struct vk_image_buffer_layout buflayout =
       vk_image_buffer_copy_layout(&img->vk, region);
@@ -1138,10 +1138,10 @@ panvk_meta_copy_buf2img_init(struct panvk_physical_device *dev)
    for (unsigned i = 0; i < ARRAY_SIZE(panvk_meta_copy_buf2img_fmts); i++) {
       struct pan_shader_info shader_info;
       mali_ptr shader = panvk_meta_copy_buf2img_shader(
-         &dev->pdev, &dev->meta.bin_pool.base, panvk_meta_copy_buf2img_fmts[i],
+         &dev->pdev, &dev->bifrost.meta.bin_pool.base, panvk_meta_copy_buf2img_fmts[i],
          &shader_info);
-      dev->meta.copy.buf2img[i].rsd = panvk_meta_copy_to_img_emit_rsd(
-         &dev->pdev, &dev->meta.desc_pool.base, shader, &shader_info,
+      dev->bifrost.meta.copy.buf2img[i].rsd = panvk_meta_copy_to_img_emit_rsd(
+         &dev->pdev, &dev->bifrost.meta.desc_pool.base, shader, &shader_info,
          panvk_meta_copy_buf2img_fmts[i].imgfmt,
          panvk_meta_copy_buf2img_fmts[i].mask, false);
    }
@@ -1470,7 +1470,7 @@ panvk_meta_copy_img2buf(struct panvk_cmd_buffer *cmdbuf,
    unsigned fmtidx = panvk_meta_copy_img2buf_format_idx(key);
 
    mali_ptr rsd =
-      cmdbuf->device->physical_device->meta.copy.img2buf[texdimidx][fmtidx].rsd;
+      cmdbuf->device->physical_device->bifrost.meta.copy.img2buf[texdimidx][fmtidx].rsd;
 
    struct panvk_meta_copy_img2buf_info info = {
       .buf.ptr = panvk_buffer_gpu_ptr(buf, region->bufferOffset),
@@ -1567,15 +1567,15 @@ panvk_meta_copy_img2buf_init(struct panvk_physical_device *dev)
    for (unsigned i = 0; i < ARRAY_SIZE(panvk_meta_copy_img2buf_fmts); i++) {
       for (unsigned texdim = 1; texdim <= 3; texdim++) {
          unsigned texdimidx = panvk_meta_copy_tex_type(texdim, false);
-         assert(texdimidx < ARRAY_SIZE(dev->meta.copy.img2buf));
+         assert(texdimidx < ARRAY_SIZE(dev->bifrost.meta.copy.img2buf));
 
          struct pan_shader_info shader_info;
          mali_ptr shader = panvk_meta_copy_img2buf_shader(
-            &dev->pdev, &dev->meta.bin_pool.base,
+            &dev->pdev, &dev->bifrost.meta.bin_pool.base,
             panvk_meta_copy_img2buf_fmts[i], texdim, false, &shader_info);
-         dev->meta.copy.img2buf[texdimidx][i].rsd =
+         dev->bifrost.meta.copy.img2buf[texdimidx][i].rsd =
             panvk_meta_copy_to_buf_emit_rsd(&dev->pdev,
-                                            &dev->meta.desc_pool.base, shader,
+                                            &dev->bifrost.meta.desc_pool.base, shader,
                                             &shader_info, true);
 
          if (texdim == 3)
@@ -1583,13 +1583,13 @@ panvk_meta_copy_img2buf_init(struct panvk_physical_device *dev)
 
          memset(&shader_info, 0, sizeof(shader_info));
          texdimidx = panvk_meta_copy_tex_type(texdim, true);
-         assert(texdimidx < ARRAY_SIZE(dev->meta.copy.img2buf));
+         assert(texdimidx < ARRAY_SIZE(dev->bifrost.meta.copy.img2buf));
          shader = panvk_meta_copy_img2buf_shader(
-            &dev->pdev, &dev->meta.bin_pool.base,
+            &dev->pdev, &dev->bifrost.meta.bin_pool.base,
             panvk_meta_copy_img2buf_fmts[i], texdim, true, &shader_info);
-         dev->meta.copy.img2buf[texdimidx][i].rsd =
+         dev->bifrost.meta.copy.img2buf[texdimidx][i].rsd =
             panvk_meta_copy_to_buf_emit_rsd(&dev->pdev,
-                                            &dev->meta.desc_pool.base, shader,
+                                            &dev->bifrost.meta.desc_pool.base, shader,
                                             &shader_info, true);
       }
    }
@@ -1676,12 +1676,12 @@ panvk_meta_copy_buf2buf_shader(struct panfrost_device *pdev,
 static void
 panvk_meta_copy_buf2buf_init(struct panvk_physical_device *dev)
 {
-   for (unsigned i = 0; i < ARRAY_SIZE(dev->meta.copy.buf2buf); i++) {
+   for (unsigned i = 0; i < ARRAY_SIZE(dev->bifrost.meta.copy.buf2buf); i++) {
       struct pan_shader_info shader_info;
       mali_ptr shader = panvk_meta_copy_buf2buf_shader(
-         &dev->pdev, &dev->meta.bin_pool.base, 1 << i, &shader_info);
-      dev->meta.copy.buf2buf[i].rsd = panvk_meta_copy_to_buf_emit_rsd(
-         &dev->pdev, &dev->meta.desc_pool.base, shader, &shader_info, false);
+         &dev->pdev, &dev->bifrost.meta.bin_pool.base, 1 << i, &shader_info);
+      dev->bifrost.meta.copy.buf2buf[i].rsd = panvk_meta_copy_to_buf_emit_rsd(
+         &dev->pdev, &dev->bifrost.meta.desc_pool.base, shader, &shader_info, false);
    }
 }
 
@@ -1700,9 +1700,9 @@ panvk_meta_copy_buf2buf(struct panvk_cmd_buffer *cmdbuf,
    unsigned log2blksz = alignment ? alignment - 1 : 4;
 
    assert(log2blksz <
-          ARRAY_SIZE(cmdbuf->device->physical_device->meta.copy.buf2buf));
+          ARRAY_SIZE(cmdbuf->device->physical_device->bifrost.meta.copy.buf2buf));
    mali_ptr rsd =
-      cmdbuf->device->physical_device->meta.copy.buf2buf[log2blksz].rsd;
+      cmdbuf->device->physical_device->bifrost.meta.copy.buf2buf[log2blksz].rsd;
 
    mali_ptr pushconsts =
       pan_pool_upload_aligned(&cmdbuf->desc_pool.base, &info, sizeof(info), 16);
@@ -1821,8 +1821,8 @@ panvk_meta_fill_buf_emit_rsd(struct panfrost_device *pdev,
 static void
 panvk_meta_fill_buf_init(struct panvk_physical_device *dev)
 {
-   dev->meta.copy.fillbuf.rsd = panvk_meta_fill_buf_emit_rsd(
-      &dev->pdev, &dev->meta.bin_pool.base, &dev->meta.desc_pool.base);
+   dev->bifrost.meta.copy.fillbuf.rsd = panvk_meta_fill_buf_emit_rsd(
+      &dev->pdev, &dev->bifrost.meta.bin_pool.base, &dev->bifrost.meta.desc_pool.base);
 }
 
 static void
@@ -1849,7 +1849,7 @@ panvk_meta_fill_buf(struct panvk_cmd_buffer *cmdbuf,
    assert(!(offset & 3) && !(size & 3));
 
    unsigned nwords = size / sizeof(uint32_t);
-   mali_ptr rsd = cmdbuf->device->physical_device->meta.copy.fillbuf.rsd;
+   mali_ptr rsd = cmdbuf->device->physical_device->bifrost.meta.copy.fillbuf.rsd;
 
    mali_ptr pushconsts =
       pan_pool_upload_aligned(&cmdbuf->desc_pool.base, &info, sizeof(info), 16);
@@ -1898,7 +1898,7 @@ panvk_meta_update_buf(struct panvk_cmd_buffer *cmdbuf,
    unsigned log2blksz = ffs(sizeof(uint32_t)) - 1;
 
    mali_ptr rsd =
-      cmdbuf->device->physical_device->meta.copy.buf2buf[log2blksz].rsd;
+      cmdbuf->device->physical_device->bifrost.meta.copy.buf2buf[log2blksz].rsd;
 
    mali_ptr pushconsts =
       pan_pool_upload_aligned(&cmdbuf->desc_pool.base, &info, sizeof(info), 16);
