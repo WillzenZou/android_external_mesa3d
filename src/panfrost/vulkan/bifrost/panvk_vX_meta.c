@@ -50,9 +50,10 @@ panvk_per_arch(meta_emit_viewport)(struct pan_pool *pool, uint16_t minx,
 void
 panvk_per_arch(meta_init)(struct panvk_device *dev)
 {
-   panvk_pool_init(&dev->meta.bin_pool, dev, NULL, PAN_KMOD_BO_FLAG_EXECUTABLE,
+   panvk_pool_init(&dev->bifrost.meta.bin_pool, dev, NULL,
+                   PAN_KMOD_BO_FLAG_EXECUTABLE,
                    16 * 1024, "panvk_meta binary pool", false);
-   panvk_pool_init(&dev->meta.desc_pool, dev, NULL, 0, 16 * 1024,
+   panvk_pool_init(&dev->bifrost.meta.desc_pool, dev, NULL, 0, 16 * 1024,
                    "panvk_meta descriptor pool", false);
    panvk_per_arch(meta_blit_init)(dev);
    panvk_per_arch(meta_copy_init)(dev);
@@ -63,6 +64,6 @@ void
 panvk_per_arch(meta_cleanup)(struct panvk_device *dev)
 {
    panvk_per_arch(meta_blit_cleanup)(dev);
-   panvk_pool_cleanup(&dev->meta.desc_pool);
-   panvk_pool_cleanup(&dev->meta.bin_pool);
+   panvk_pool_cleanup(&dev->bifrost.meta.desc_pool);
+   panvk_pool_cleanup(&dev->bifrost.meta.bin_pool);
 }

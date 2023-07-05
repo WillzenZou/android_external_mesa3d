@@ -37,7 +37,7 @@ panvk_meta_clear_color_attachment_shader(struct panvk_device *dev,
                                          enum glsl_base_type base_type,
                                          struct pan_shader_info *shader_info)
 {
-   struct pan_pool *bin_pool = &dev->meta.bin_pool.base;
+   struct pan_pool *bin_pool = &dev->bifrost.meta.bin_pool.base;
 
    nir_builder b = nir_builder_init_simple_shader(
       MESA_SHADER_FRAGMENT, GENX(pan_shader_get_compiler_options)(),
@@ -255,7 +255,7 @@ panvk_meta_clear_attachment(struct panvk_cmd_buffer *cmdbuf,
                             const VkClearValue *clear_value,
                             const VkClearRect *clear_rect)
 {
-   struct panvk_meta *meta = &cmdbuf->device->meta;
+   struct panvk_meta *meta = &cmdbuf->device->bifrost.meta;
    struct panvk_batch *batch = cmdbuf->state.batch;
    const struct panvk_render_pass *pass = cmdbuf->state.pass;
    const struct panvk_render_pass_attachment *att =
@@ -495,20 +495,20 @@ panvk_per_arch(CmdClearAttachments)(VkCommandBuffer commandBuffer,
 static void
 panvk_meta_clear_attachment_init(struct panvk_device *dev)
 {
-   dev->meta.clear_attachment.color[GLSL_TYPE_UINT].shader =
+   dev->bifrost.meta.clear_attachment.color[GLSL_TYPE_UINT].shader =
       panvk_meta_clear_color_attachment_shader(
          dev, GLSL_TYPE_UINT,
-         &dev->meta.clear_attachment.color[GLSL_TYPE_UINT].shader_info);
+         &dev->bifrost.meta.clear_attachment.color[GLSL_TYPE_UINT].shader_info);
 
-   dev->meta.clear_attachment.color[GLSL_TYPE_INT].shader =
+   dev->bifrost.meta.clear_attachment.color[GLSL_TYPE_INT].shader =
       panvk_meta_clear_color_attachment_shader(
          dev, GLSL_TYPE_INT,
-         &dev->meta.clear_attachment.color[GLSL_TYPE_INT].shader_info);
+         &dev->bifrost.meta.clear_attachment.color[GLSL_TYPE_INT].shader_info);
 
-   dev->meta.clear_attachment.color[GLSL_TYPE_FLOAT].shader =
+   dev->bifrost.meta.clear_attachment.color[GLSL_TYPE_FLOAT].shader =
       panvk_meta_clear_color_attachment_shader(
          dev, GLSL_TYPE_FLOAT,
-         &dev->meta.clear_attachment.color[GLSL_TYPE_FLOAT].shader_info);
+         &dev->bifrost.meta.clear_attachment.color[GLSL_TYPE_FLOAT].shader_info);
 }
 
 void

@@ -90,6 +90,8 @@ typedef uint32_t xcb_window_t;
 
 #include "panvk_entrypoints.h"
 
+#include "bifrost/panvk_meta.h"
+
 #define MAX_BIND_POINTS             2 /* compute + graphics */
 #define MAX_VBS                     16
 #define MAX_VERTEX_ATTRIBS          16
@@ -114,7 +116,7 @@ typedef uint32_t xcb_window_t;
 #define PANVK_PUSH_CONST_UBO_INDEX 1
 #define PANVK_NUM_BUILTIN_UBOS     2
 
-#define panvk_stub() assert(!"stub")
+#define panvk_stub() // assert(!"stub")
 
 struct panvk_device;
 
@@ -135,65 +137,6 @@ struct panvk_priv_bo *panvk_priv_bo_create(struct panvk_device *dev,
 
 void panvk_priv_bo_destroy(struct panvk_priv_bo *bo,
                            const VkAllocationCallbacks *alloc);
-
-#define PANVK_META_COPY_BUF2IMG_NUM_FORMATS  12
-#define PANVK_META_COPY_IMG2BUF_NUM_FORMATS  12
-#define PANVK_META_COPY_IMG2IMG_NUM_FORMATS  14
-#define PANVK_META_COPY_NUM_TEX_TYPES        5
-#define PANVK_META_COPY_BUF2BUF_NUM_BLKSIZES 5
-
-static inline unsigned
-panvk_meta_copy_tex_type(unsigned dim, bool isarray)
-{
-   assert(dim > 0 && dim <= 3);
-   assert(dim < 3 || !isarray);
-   return (((dim - 1) << 1) | (isarray ? 1 : 0));
-}
-
-struct panvk_meta {
-
-   struct panvk_pool bin_pool;
-   struct panvk_pool desc_pool;
-
-   /* Access to the blitter pools are protected by the blitter
-    * shader/rsd locks. They can't be merged with other binary/desc
-    * pools unless we patch pan_blitter.c to external pool locks.
-    */
-   struct {
-      struct panvk_pool bin_pool;
-      struct panvk_pool desc_pool;
-      struct pan_blitter_cache cache;
-   } blitter;
-
-   struct pan_blend_shader_cache blend_shader_cache;
-
-   struct {
-      struct {
-         mali_ptr shader;
-         struct pan_shader_info shader_info;
-      } color[3]; /* 3 base types */
-   } clear_attachment;
-
-   struct {
-      struct {
-         mali_ptr rsd;
-      } buf2img[PANVK_META_COPY_BUF2IMG_NUM_FORMATS];
-      struct {
-         mali_ptr rsd;
-      } img2buf[PANVK_META_COPY_NUM_TEX_TYPES]
-               [PANVK_META_COPY_IMG2BUF_NUM_FORMATS];
-      struct {
-         mali_ptr rsd;
-      } img2img[2][PANVK_META_COPY_NUM_TEX_TYPES]
-               [PANVK_META_COPY_IMG2IMG_NUM_FORMATS];
-      struct {
-         mali_ptr rsd;
-      } buf2buf[PANVK_META_COPY_BUF2BUF_NUM_BLKSIZES];
-      struct {
-         mali_ptr rsd;
-      } fillbuf;
-   } copy;
-};
 
 struct panvk_physical_device {
    struct vk_physical_device vk;
@@ -281,7 +224,11 @@ struct panvk_device {
    struct panvk_priv_bo *tiler_heap;
    struct panvk_priv_bo *sample_positions;
 
-   struct panvk_meta meta;
+   union {
+      struct {
+         struct panvk_meta meta;
+      } bifrost;
+   };
 
    struct vk_device_dispatch_table cmd_dispatch;
 

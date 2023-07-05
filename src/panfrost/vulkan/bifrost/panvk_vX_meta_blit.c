@@ -117,7 +117,8 @@ panvk_meta_blit(struct panvk_cmd_buffer *cmdbuf,
    panvk_per_arch(cmd_close_batch)(cmdbuf);
 
    GENX(pan_blit_ctx_init)
-   (&dev->meta.blitter.cache, blitinfo, &cmdbuf->desc_pool.base, &ctx);
+   (&dev->bifrost.meta.blitter.cache, blitinfo, &cmdbuf->desc_pool.base,
+    &ctx);
    do {
       if (ctx.dst.cur_layer < 0)
          continue;
@@ -227,24 +228,27 @@ panvk_per_arch(CmdResolveImage2)(VkCommandBuffer commandBuffer,
 void
 panvk_per_arch(meta_blit_init)(struct panvk_device *dev)
 {
-   panvk_pool_init(&dev->meta.blitter.bin_pool, dev, NULL,
+   panvk_pool_init(&dev->bifrost.meta.blitter.bin_pool, dev, NULL,
                    PAN_KMOD_BO_FLAG_EXECUTABLE, 16 * 1024,
                    "panvk_meta blitter binary pool", false);
-   panvk_pool_init(&dev->meta.blitter.desc_pool, dev, NULL, 0, 16 * 1024,
+   panvk_pool_init(&dev->bifrost.meta.blitter.desc_pool, dev, NULL,
+                   0, 16 * 1024,
                    "panvk_meta blitter descriptor pool", false);
-   pan_blend_shader_cache_init(&dev->meta.blend_shader_cache,
+   pan_blend_shader_cache_init(&dev->bifrost.meta.blend_shader_cache,
                                dev->physical_device->kmod.props.gpu_prod_id);
    GENX(pan_blitter_cache_init)
-   (&dev->meta.blitter.cache, dev->physical_device->kmod.props.gpu_prod_id,
-    &dev->meta.blend_shader_cache, &dev->meta.blitter.bin_pool.base,
-    &dev->meta.blitter.desc_pool.base);
+   (&dev->bifrost.meta.blitter.cache,
+    dev->physical_device->kmod.props.gpu_prod_id,
+    &dev->bifrost.meta.blend_shader_cache,
+    &dev->bifrost.meta.blitter.bin_pool.base,
+    &dev->bifrost.meta.blitter.desc_pool.base);
 }
 
 void
 panvk_per_arch(meta_blit_cleanup)(struct panvk_device *dev)
 {
-   GENX(pan_blitter_cache_cleanup)(&dev->meta.blitter.cache);
-   pan_blend_shader_cache_cleanup(&dev->meta.blend_shader_cache);
-   panvk_pool_cleanup(&dev->meta.blitter.desc_pool);
-   panvk_pool_cleanup(&dev->meta.blitter.bin_pool);
+   GENX(pan_blitter_cache_cleanup)(&dev->bifrost.meta.blitter.cache);
+   pan_blend_shader_cache_cleanup(&dev->bifrost.meta.blend_shader_cache);
+   panvk_pool_cleanup(&dev->bifrost.meta.blitter.desc_pool);
+   panvk_pool_cleanup(&dev->bifrost.meta.blitter.bin_pool);
 }
