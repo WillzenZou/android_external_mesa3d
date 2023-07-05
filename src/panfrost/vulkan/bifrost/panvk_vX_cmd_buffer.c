@@ -346,15 +346,15 @@ panvk_cmd_prepare_push_constants(
    struct panvk_descriptor_state *desc_state = &bind_point_state->desc_state;
    const struct panvk_pipeline *pipeline = bind_point_state->pipeline;
 
-   if (!pipeline->layout->push_constants.size || desc_state->push_constants)
+   if (!pipeline->bifrost.layout->push_constants.size || desc_state->push_constants)
       return;
 
    struct panfrost_ptr push_constants = pan_pool_alloc_aligned(
       &cmdbuf->desc_pool.base,
-      ALIGN_POT(pipeline->layout->push_constants.size, 16), 16);
+      ALIGN_POT(pipeline->bifrost.layout->push_constants.size, 16), 16);
 
    memcpy(push_constants.cpu, cmdbuf->push_constants,
-          pipeline->layout->push_constants.size);
+          pipeline->bifrost.layout->push_constants.size);
    desc_state->push_constants = push_constants.gpu;
 }
 
@@ -380,22 +380,24 @@ panvk_cmd_prepare_ubos(struct panvk_cmd_buffer *cmdbuf,
       cfg.entries = DIV_ROUND_UP(sizeof(desc_state->sysvals), 16);
    }
 
-   if (pipeline->layout->push_constants.size) {
+   if (pipeline->bifrost.layout->push_constants.size) {
       pan_pack(&ubo_descs[PANVK_PUSH_CONST_UBO_INDEX], UNIFORM_BUFFER, cfg) {
          cfg.pointer = desc_state->push_constants;
-         cfg.entries = ALIGN_POT(pipeline->layout->push_constants.size, 16);
+         cfg.entries =
+            ALIGN_POT(pipeline->bifrost.layout->push_constants.size, 16);
       }
    } else {
       memset(&ubo_descs[PANVK_PUSH_CONST_UBO_INDEX], 0, sizeof(*ubo_descs));
    }
 
-   for (unsigned s = 0; s < pipeline->layout->vk.set_count; s++) {
+   for (unsigned s = 0; s < pipeline->bifrost.layout->vk.set_count; s++) {
       const struct panvk_descriptor_set_layout *set_layout =
-         vk_to_panvk_descriptor_set_layout(pipeline->layout->vk.set_layouts[s]);
+         vk_to_panvk_descriptor_set_layout(
+            pipeline->bifrost.layout->vk.set_layouts[s]);
       const struct panvk_descriptor_set *set = desc_state->sets[s];
 
-      unsigned ubo_start =
-         panvk_per_arch(pipeline_layout_ubo_start)(pipeline->layout, s, false);
+      unsigned ubo_start = panvk_per_arch(pipeline_layout_ubo_start)(
+         pipeline->bifrost.layout, s, false);
 
       if (!set) {
          unsigned all_ubos = set_layout->num_ubos + set_layout->num_dyn_ubos;
@@ -405,11 +407,11 @@ panvk_cmd_prepare_ubos(struct panvk_cmd_buffer *cmdbuf,
                 set_layout->num_ubos * sizeof(*ubo_descs));
 
          unsigned dyn_ubo_start = panvk_per_arch(pipeline_layout_ubo_start)(
-            pipeline->layout, s, true);
+            pipeline->bifrost.layout, s, true);
 
          for (unsigned i = 0; i < set_layout->num_dyn_ubos; i++) {
             const unsigned ubo_idx =
-               pipeline->layout->sets[s].dyn_ubo_offset + i;
+               pipeline->bifrost.layout->sets[s].dyn_ubo_offset + i;
             const struct panvk_buffer_desc *bdesc =
                &desc_state->dyn.ubos[ubo_idx];
 
@@ -438,7 +440,7 @@ panvk_cmd_prepare_textures(struct panvk_cmd_buffer *cmdbuf,
 {
    struct panvk_descriptor_state *desc_state = &bind_point_state->desc_state;
    const struct panvk_pipeline *pipeline = bind_point_state->pipeline;
-   unsigned num_textures = pipeline->layout->num_textures;
+   unsigned num_textures = pipeline->bifrost.layout->num_textures;
 
    if (!num_textures || desc_state->textures)
       return;
@@ -468,7 +470,7 @@ panvk_cmd_prepare_samplers(struct panvk_cmd_buffer *cmdbuf,
 {
    struct panvk_descriptor_state *desc_state = &bind_point_state->desc_state;
    const struct panvk_pipeline *pipeline = bind_point_state->pipeline;
-   unsigned num_samplers = pipeline->layout->num_samplers;
+   unsigned num_samplers = pipeline->bifrost.layout->num_samplers;
 
    if (!num_samplers || desc_state->samplers)
       return;
@@ -755,14 +757,14 @@ panvk_fill_non_vs_attribs(struct panvk_cmd_buffer *cmdbuf,
    struct panvk_descriptor_state *desc_state = &bind_point_state->desc_state;
    const struct panvk_pipeline *pipeline = bind_point_state->pipeline;
 
-   for (unsigned s = 0; s < pipeline->layout->vk.set_count; s++) {
+   for (unsigned s = 0; s < pipeline->bifrost.layout->vk.set_count; s++) {
       const struct panvk_descriptor_set *set = desc_state->sets[s];
 
       if (!set)
          continue;
 
       const struct panvk_descriptor_set_layout *layout = set->layout;
-      unsigned img_idx = pipeline->layout->sets[s].img_offset;
+      unsigned img_idx = pipeline->bifrost.layout->sets[s].img_offset;
       unsigned offset = img_idx * pan_size(ATTRIBUTE_BUFFER) * 2;
       unsigned size = layout->num_imgs * pan_size(ATTRIBUTE_BUFFER) * 2;
 
@@ -790,8 +792,8 @@ panvk_prepare_non_vs_attribs(struct panvk_cmd_buffer *cmdbuf,
    if (desc_state->non_vs_attribs || !pipeline->img_access_mask)
       return;
 
-   unsigned attrib_count = pipeline->layout->num_imgs;
-   unsigned attrib_buf_count = (pipeline->layout->num_imgs * 2);
+   unsigned attrib_count = pipeline->bifrost.layout->num_imgs;
+   unsigned attrib_buf_count = (pipeline->bifrost.layout->num_imgs * 2);
    struct panfrost_ptr bufs = pan_pool_alloc_desc_array(
       &cmdbuf->desc_pool.base, attrib_buf_count + 1, ATTRIBUTE_BUFFER);
    struct panfrost_ptr attribs = pan_pool_alloc_desc_array(
@@ -899,7 +901,7 @@ panvk_draw_prepare_vs_attribs(struct panvk_cmd_buffer *cmdbuf,
    const struct panvk_pipeline *pipeline = bind_point_state->pipeline;
    unsigned num_imgs =
       pipeline->img_access_mask & BITFIELD_BIT(MESA_SHADER_VERTEX)
-         ? pipeline->layout->num_imgs
+         ? pipeline->bifrost.layout->num_imgs
          : 0;
    unsigned attrib_count = pipeline->attribs.attrib_count + num_imgs;
 
