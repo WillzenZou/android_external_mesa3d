@@ -15,9 +15,9 @@ struct pan_kmod_vm;
 void panthor_kmod_bo_attach_sync_point(struct pan_kmod_bo *bo,
                                        uint32_t sync_handle,
                                        uint64_t sync_point, bool read_only);
-void panthor_kmod_bo_get_sync_point(struct pan_kmod_bo *bo,
-                                    uint32_t *sync_handle, uint64_t *sync_point,
-                                    bool read_only);
+int panthor_kmod_bo_get_sync_point(struct pan_kmod_bo *bo,
+                                   uint32_t *sync_handle, uint64_t *sync_point,
+                                   bool read_only);
 uint32_t panthor_kmod_vm_handle(struct pan_kmod_vm *vm);
 void panthor_kmod_vm_new_sync_point(struct pan_kmod_vm *vm,
                                     uint32_t *sync_handle,
