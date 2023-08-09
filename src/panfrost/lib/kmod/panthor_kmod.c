@@ -9,6 +9,7 @@
 #include <string.h>
 #include <xf86drm.h>
 
+#include "util/u_debug.h"
 #include "util/hash_table.h"
 #include "util/libsync.h"
 #include "util/macros.h"
@@ -391,8 +392,10 @@ panthor_kmod_bo_get_sync_point(struct pan_kmod_bo *bo, uint32_t *sync_handle,
       int ret =
          drmPrimeHandleToFD(bo->dev->fd, bo->handle, DRM_CLOEXEC, &dmabuf_fd);
 
-      if (ret)
+      if (ret) {
+         debug_printf("drmPrimeHandleToFD() failed: %d\n", ret);
          return -1;
+      }
 
       struct dma_buf_export_sync_file esync = {
          .flags = for_read_only_access ? DMA_BUF_SYNC_READ : DMA_BUF_SYNC_RW,
@@ -400,14 +403,19 @@ panthor_kmod_bo_get_sync_point(struct pan_kmod_bo *bo, uint32_t *sync_handle,
 
       ret = drmIoctl(dmabuf_fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &esync);
       close(dmabuf_fd);
-      if (ret)
+      if (ret) {
+         debug_printf("drmIoctl(..., DMA_BUF_IOCTL_EXPORT_SYNC_FILE, ...) "
+                      "failed: %d\n", ret);
          return -1;
+      }
 
       ret = drmSyncobjImportSyncFile(bo->dev->fd, panthor_bo->sync.handle,
                                      esync.fd);
       close(esync.fd);
-      if (ret)
+      if (ret) {
+         debug_printf("drmSyncobjImportSyncFile() failed: %d\n", ret);
          return -1;
+      }
 
       *sync_handle = panthor_bo->sync.handle;
       *sync_point = 0;
