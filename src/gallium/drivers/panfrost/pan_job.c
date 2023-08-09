@@ -837,9 +837,12 @@ panfrost_batch_submit_cs_ioctl(struct panfrost_batch *batch, mali_ptr cs_start,
 
       bo->gpu_access |= flags & (PAN_BO_ACCESS_RW);
 
-      panthor_kmod_bo_get_sync_point(bo->kmod_bo, &bo_sync_handle,
-                                     &bo_sync_point,
-                                     !(flags & PAN_BO_ACCESS_WRITE));
+      ret = panthor_kmod_bo_get_sync_point(bo->kmod_bo, &bo_sync_handle,
+                                           &bo_sync_point,
+                                           !(flags & PAN_BO_ACCESS_WRITE));
+      if (ret)
+         return ret;
+
       if (bo_sync_handle == vm_sync_handle) {
          vm_sync_wait_point = MAX2(vm_sync_wait_point, bo_sync_point);
       } else {
@@ -854,16 +857,24 @@ panfrost_batch_submit_cs_ioctl(struct panfrost_batch *batch, mali_ptr cs_start,
 
    util_dynarray_foreach(&batch->pool.bos, struct panfrost_bo *, bo) {
       (*bo)->gpu_access |= PAN_BO_ACCESS_RW;
-      panthor_kmod_bo_get_sync_point((*bo)->kmod_bo, &bo_sync_handle,
-                                     &bo_sync_point, false);
+
+      ret = panthor_kmod_bo_get_sync_point((*bo)->kmod_bo, &bo_sync_handle,
+                                           &bo_sync_point, false);
+      if (ret)
+         return ret;
+
       assert(bo_sync_handle == vm_sync_handle);
       vm_sync_wait_point = MAX2(vm_sync_wait_point, bo_sync_point);
    }
 
    util_dynarray_foreach(&batch->invisible_pool.bos, struct panfrost_bo *, bo) {
       (*bo)->gpu_access |= PAN_BO_ACCESS_RW;
-      panthor_kmod_bo_get_sync_point((*bo)->kmod_bo, &bo_sync_handle,
-                                     &bo_sync_point, false);
+
+      ret = panthor_kmod_bo_get_sync_point((*bo)->kmod_bo, &bo_sync_handle,
+                                           &bo_sync_point, false);
+      if (ret)
+         return ret;
+
       assert(bo_sync_handle == vm_sync_handle);
       vm_sync_wait_point = MAX2(vm_sync_wait_point, bo_sync_point);
    }
