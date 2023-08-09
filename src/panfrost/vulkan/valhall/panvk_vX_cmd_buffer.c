@@ -133,3 +133,106 @@ const struct vk_command_buffer_ops panvk_per_arch(cmd_buffer_ops) = {
    .reset = panvk_reset_cmdbuf,
    .destroy = panvk_destroy_cmdbuf,
 };
+
+void
+panvk_per_arch(CmdNextSubpass2)(VkCommandBuffer commandBuffer,
+                                const VkSubpassBeginInfo *pSubpassBeginInfo,
+                                const VkSubpassEndInfo *pSubpassEndInfo)
+{
+   panvk_stub();
+}
+
+void
+panvk_per_arch(CmdNextSubpass)(VkCommandBuffer cmd, VkSubpassContents contents)
+{
+   panvk_stub();
+}
+
+void
+panvk_per_arch(CmdDraw)(VkCommandBuffer commandBuffer, uint32_t vertexCount,
+                        uint32_t instanceCount, uint32_t firstVertex,
+                        uint32_t firstInstance)
+{
+   panvk_stub();
+}
+
+void
+panvk_per_arch(CmdDrawIndexed)(VkCommandBuffer commandBuffer,
+                               uint32_t indexCount, uint32_t instanceCount,
+                               uint32_t firstIndex, int32_t vertexOffset,
+                               uint32_t firstInstance)
+{
+   panvk_stub();
+}
+
+VkResult
+panvk_per_arch(EndCommandBuffer)(VkCommandBuffer commandBuffer)
+{
+   panvk_stub();
+   return VK_SUCCESS;
+}
+
+void
+panvk_per_arch(CmdEndRenderPass2)(VkCommandBuffer commandBuffer,
+                                  const VkSubpassEndInfo *pSubpassEndInfo)
+{
+   panvk_stub();
+}
+
+void
+panvk_per_arch(CmdEndRenderPass)(VkCommandBuffer cmd)
+{
+   panvk_stub();
+}
+
+void
+panvk_per_arch(CmdPipelineBarrier2)(VkCommandBuffer commandBuffer,
+                                    const VkDependencyInfo *pDependencyInfo)
+{
+   panvk_stub();
+}
+
+void
+panvk_per_arch(CmdSetEvent2)(VkCommandBuffer commandBuffer, VkEvent _event,
+                             const VkDependencyInfo *pDependencyInfo)
+{
+   panvk_stub();
+}
+
+void
+panvk_per_arch(CmdResetEvent2)(VkCommandBuffer commandBuffer, VkEvent _event,
+                               VkPipelineStageFlags2 stageMask)
+{
+   panvk_stub();
+}
+
+void
+panvk_per_arch(CmdWaitEvents2)(VkCommandBuffer commandBuffer,
+                               uint32_t eventCount, const VkEvent *pEvents,
+                               const VkDependencyInfo *pDependencyInfos)
+{
+   panvk_stub();
+}
+
+VkResult
+panvk_per_arch(BeginCommandBuffer)(VkCommandBuffer commandBuffer,
+                                   const VkCommandBufferBeginInfo *pBeginInfo)
+{
+   panvk_stub();
+   return VK_SUCCESS;
+}
+
+void
+panvk_per_arch(DestroyCommandPool)(VkDevice _device, VkCommandPool commandPool,
+                                   const VkAllocationCallbacks *pAllocator)
+{
+   panvk_stub();
+}
+
+
+void
+panvk_per_arch(CmdDispatch)(VkCommandBuffer commandBuffer, uint32_t x,
+                            uint32_t y, uint32_t z)
+{
+   panvk_stub();
+}
