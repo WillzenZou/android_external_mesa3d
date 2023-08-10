@@ -85,6 +85,7 @@ foreach arch : ['6', '7', '10']
       'valhall/panvk_vX_cmd_buffer.c',
       'valhall/panvk_vX_descriptor_set.c',
       'valhall/panvk_vX_device.c',
+      'valhall/panvk_vX_image.c',
     ]
   endif
 
