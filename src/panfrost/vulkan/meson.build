@@ -84,6 +84,7 @@ foreach arch : [6, 7, 10]
     # Valhall
     _sources += [
       'valhall/panvk_vX_cmd_buffer.c',
+      'valhall/panvk_vX_meta_copy.c',
       'valhall/panvk_vX_queue.c',
     ]
   endif
