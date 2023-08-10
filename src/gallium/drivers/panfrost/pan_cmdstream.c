@@ -3695,9 +3695,9 @@ panfrost_update_point_sprite_shader(struct panfrost_context *ctx,
  * the memory allocation patterns are different.
  */
 static void
-panfrost_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
-              unsigned drawid_offset,
-              const struct pipe_draw_start_count_bias *draw)
+panfrost_direct_draw(struct panfrost_batch *batch,
+                     const struct pipe_draw_info *info, unsigned drawid_offset,
+                     const struct pipe_draw_start_count_bias *draw)
 {
    if (!draw->count || !info->instance_count)
       return;
@@ -4006,64 +4006,6 @@ panfrost_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
                 secondary_shader);
 }
 
-static void
-panfrost_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
-                  unsigned drawid_offset,
-                  const struct pipe_draw_indirect_info *indirect,
-                  const struct pipe_draw_start_count_bias *draws,
-                  unsigned num_draws)
-{
-   struct panfrost_context *ctx = pan_context(pipe);
-   struct panfrost_device *dev = pan_device(pipe->screen);
-
-   if (!panfrost_render_condition_check(ctx))
-      return;
-
-   assert(!(indirect && indirect->buffer) && "TODO: Indirects with CSF");
-
-   /* Do some common setup */
-   struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
-
-   bool points = (info->mode == MESA_PRIM_POINTS);
-
-   if (unlikely(!panfrost_compatible_batch_state(batch, points))) {
-      batch = panfrost_get_fresh_batch_for_fbo(ctx, "State change");
-
-      ASSERTED bool succ = panfrost_compatible_batch_state(batch, points);
-      assert(succ && "must be able to set state for a fresh batch");
-   }
-
-   if (batch->draw_count == 0)
-      ceu_vt_start(batch->ceu_builder);
-
-   /* panfrost_batch_skip_rasterization reads
-    * batch->scissor_culls_everything, which is set by
-    * panfrost_emit_viewport, so call that first.
-    */
-   if (ctx->dirty & (PAN_DIRTY_VIEWPORT | PAN_DIRTY_SCISSOR))
-      batch->viewport = panfrost_emit_viewport(batch);
-
-   /* Mark everything dirty when debugging */
-   if (unlikely(dev->debug & PAN_DBG_DIRTY))
-      panfrost_dirty_state_all(ctx);
-
-   /* Conservatively assume draw parameters always change */
-   ctx->dirty |= PAN_DIRTY_PARAMS | PAN_DIRTY_DRAWID;
-
-   struct pipe_draw_info tmp_info = *info;
-   unsigned drawid = drawid_offset;
-
-   for (unsigned i = 0; i < num_draws; i++) {
-      panfrost_draw(batch, &tmp_info, drawid, &draws[i]);
-
-      if (tmp_info.increment_draw_id) {
-         ctx->dirty |= PAN_DIRTY_DRAWID;
-         drawid++;
-      }
-      batch->draw_count++;
-   }
-}
-
 /*
  * Launch grid is the compute equivalent of draw_vbo. Set up the registers for a
  * compute kernel and emit the run_compute command.
@@ -4335,75 +4277,6 @@ panfrost_direct_draw(struct panfrost_batch *batch,
 #endif
 }
 
-static void
-panfrost_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
-                  unsigned drawid_offset,
-                  const struct pipe_draw_indirect_info *indirect,
-                  const struct pipe_draw_start_count_bias *draws,
-                  unsigned num_draws)
-{
-   struct panfrost_context *ctx = pan_context(pipe);
-   struct panfrost_device *dev = pan_device(pipe->screen);
-
-   if (!panfrost_render_condition_check(ctx))
-      return;
-
-   ctx->draw_calls++;
-
-   /* Emulate indirect draws on JM */
-   if (indirect && indirect->buffer) {
-      assert(num_draws == 1);
-      util_draw_indirect(pipe, info, indirect);
-      perf_debug(dev, "Emulating indirect draw on the CPU");
-      return;
-   }
-
-   /* Do some common setup */
-   struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
-
-   /* Don't add too many jobs to a single batch. Hardware has a hard limit
-    * of 65536 jobs, but we choose a smaller soft limit (arbitrary) to
-    * avoid the risk of timeouts. This might not be a good idea. */
-   if (unlikely(batch->draw_count > 10000))
-      batch = panfrost_get_fresh_batch_for_fbo(ctx, "Too many draws");
-
-   bool points = (info->mode == MESA_PRIM_POINTS);
-
-   if (unlikely(!panfrost_compatible_batch_state(batch, points))) {
-      batch = panfrost_get_fresh_batch_for_fbo(ctx, "State change");
-
-      ASSERTED bool succ = panfrost_compatible_batch_state(batch, points);
-      assert(succ && "must be able to set state for a fresh batch");
-   }
-
-   /* panfrost_batch_skip_rasterization reads
-    * batch->scissor_culls_everything, which is set by
-    * panfrost_emit_viewport, so call that first.
-    */
-   if (ctx->dirty & (PAN_DIRTY_VIEWPORT | PAN_DIRTY_SCISSOR))
-      batch->viewport = panfrost_emit_viewport(batch);
-
-   /* Mark everything dirty when debugging */
-   if (unlikely(dev->debug & PAN_DBG_DIRTY))
-      panfrost_dirty_state_all(ctx);
-
-   /* Conservatively assume draw parameters always change */
-   ctx->dirty |= PAN_DIRTY_PARAMS | PAN_DIRTY_DRAWID;
-
-   struct pipe_draw_info tmp_info = *info;
-   unsigned drawid = drawid_offset;
-
-   for (unsigned i = 0; i < num_draws; i++) {
-      panfrost_direct_draw(batch, &tmp_info, drawid, &draws[i]);
-
-      if (tmp_info.increment_draw_id) {
-         ctx->dirty |= PAN_DIRTY_DRAWID;
-         drawid++;
-      }
-      batch->draw_count++;
-   }
-}
-
 /*
  * Launch grid is the compute equivalent of draw_vbo, so in this routine, we
  * construct the COMPUTE job and add it to the job chain.
@@ -4534,6 +4407,86 @@ panfrost_launch_grid(struct pipe_context *pipe,
    panfrost_flush_all_batches(ctx, "Launch grid post-barrier");
 }
 #endif
+
+static inline void
+panfrost_start_tiling(struct panfrost_batch *batch)
+{
+#if PAN_USE_CSF
+   ceu_vt_start(batch->ceu_builder);
+#endif
+}
+
+static void
+panfrost_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+                  unsigned drawid_offset,
+                  const struct pipe_draw_indirect_info *indirect,
+                  const struct pipe_draw_start_count_bias *draws,
+                  unsigned num_draws)
+{
+   struct panfrost_context *ctx = pan_context(pipe);
+   struct panfrost_device *dev = pan_device(pipe->screen);
+
+   if (!panfrost_render_condition_check(ctx))
+      return;
+
+   ctx->draw_calls++;
+
+   /* Emulate indirect draws on JM */
+   if (indirect && indirect->buffer) {
+      assert(num_draws == 1);
+      util_draw_indirect(pipe, info, indirect);
+      perf_debug(dev, "Emulating indirect draw on the CPU");
+      return;
+   }
+
+   /* Do some common setup */
+   struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
+
+   /* Don't add too many jobs to a single batch. Hardware has a hard limit
+    * of 65536 jobs, but we choose a smaller soft limit (arbitrary) to
+    * avoid the risk of timeouts. This might not be a good idea. */
+   if (unlikely(batch->draw_count > 10000))
+      batch = panfrost_get_fresh_batch_for_fbo(ctx, "Too many draws");
+
+   bool points = (info->mode == MESA_PRIM_POINTS);
+
+   if (unlikely(!panfrost_compatible_batch_state(batch, points))) {
+      batch = panfrost_get_fresh_batch_for_fbo(ctx, "State change");
+
+      ASSERTED bool succ = panfrost_compatible_batch_state(batch, points);
+      assert(succ && "must be able to set state for a fresh batch");
+   }
+
+   if (batch->draw_count == 0)
+      panfrost_start_tiling(batch);
+
+   /* panfrost_batch_skip_rasterization reads
+    * batch->scissor_culls_everything, which is set by
+    * panfrost_emit_viewport, so call that first.
+    */
+   if (ctx->dirty & (PAN_DIRTY_VIEWPORT | PAN_DIRTY_SCISSOR))
+      batch->viewport = panfrost_emit_viewport(batch);
+
+   /* Mark everything dirty when debugging */
+   if (unlikely(dev->debug & PAN_DBG_DIRTY))
+      panfrost_dirty_state_all(ctx);
+
+   /* Conservatively assume draw parameters always change */
+   ctx->dirty |= PAN_DIRTY_PARAMS | PAN_DIRTY_DRAWID;
+
+   struct pipe_draw_info tmp_info = *info;
+   unsigned drawid = drawid_offset;
+
+   for (unsigned i = 0; i < num_draws; i++) {
+      panfrost_direct_draw(batch, &tmp_info, drawid, &draws[i]);
+
+      if (tmp_info.increment_draw_id) {
+         ctx->dirty |= PAN_DIRTY_DRAWID;
+         drawid++;
+      }
+      batch->draw_count++;
+   }
+}
 
 static void *
 panfrost_create_rasterizer_state(struct pipe_context *pctx,
