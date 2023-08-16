@@ -3750,9 +3750,113 @@ panfrost_update_point_sprite_shader(struct panfrost_context *ctx,
 
 #if PAN_USE_CSF
 /*
- * Entrypoint for draws with CSF Mali. This is split out from JM as the handling
- * of indirect draws is completely different, now that we can use the CEU, and
- * the memory allocation patterns are different.
+ * Launch grid is the compute equivalent of draw_vbo. Set up the registers for a
+ * compute kernel and emit the run_compute command.
+ */
+static void
+panfrost_launch_grid(struct pipe_context *pipe,
+                     const struct pipe_grid_info *info)
+{
+   struct panfrost_context *ctx = pan_context(pipe);
+
+   /* XXX - shouldn't be necessary with working memory barriers. Affected
+    * test: KHR-GLES31.core.compute_shader.pipeline-post-xfb */
+   panfrost_flush_all_batches(ctx, "Launch grid pre-barrier");
+
+   struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
+
+   ctx->compute_grid = info;
+
+   /* Conservatively assume workgroup size changes every launch */
+   ctx->dirty |= PAN_DIRTY_PARAMS;
+
+   panfrost_update_shader_state(batch, PIPE_SHADER_COMPUTE);
+
+   /* Empty compute programs are invalid and don't make sense */
+   if (batch->rsd[PIPE_SHADER_COMPUTE] == 0)
+      return;
+
+   struct panfrost_compiled_shader *cs = ctx->prog[PIPE_SHADER_COMPUTE];
+   ceu_builder *b = batch->ceu_builder;
+
+   panfrost_emit_shader_regs(batch, PIPE_SHADER_COMPUTE,
+                             batch->rsd[PIPE_SHADER_COMPUTE]);
+
+   ceu_move64_to(b, ceu_reg64(b, 24), panfrost_emit_shared_memory(batch, info));
+
+   /* Global attribute offset */
+   ceu_move32_to(b, ceu_reg32(b, 32), 0);
+
+   /* Compute workgroup size */
+   uint32_t wg_size[4];
+   pan_pack(wg_size, COMPUTE_SIZE_WORKGROUP, cfg) {
+      cfg.workgroup_size_x = info->block[0];
+      cfg.workgroup_size_y = info->block[1];
+      cfg.workgroup_size_z = info->block[2];
+
+      /* Workgroups may be merged if the shader does not use barriers
+       * or shared memory. This condition is checked against the
+       * static shared_size at compile-time. We need to check the
+       * variable shared size at launch_grid time, because the
+       * compiler doesn't know about that.
+       */
+      cfg.allow_merging_workgroups = cs->info.cs.allow_merging_workgroups &&
+                                     (info->variable_shared_mem == 0);
+   }
+
+   ceu_move32_to(b, ceu_reg32(b, 33), wg_size[0]);
+
+   /* Offset */
+   for (unsigned i = 0; i < 3; ++i)
+      ceu_move32_to(b, ceu_reg32(b, 34 + i), 0);
+
+   if (info->indirect) {
+      /* Load size in workgroups per dimension from memory */
+      ceu_index address = ceu_reg64(b, 64);
+      ceu_move64_to(b, address,
+                    pan_resource(info->indirect)->image.data.bo->ptr.gpu +
+                       info->indirect_offset);
+
+      ceu_index grid_xyz = ceu_reg_tuple(b, 37, 3);
+      ceu_load_to(b, grid_xyz, address, BITFIELD_MASK(3), 0);
+
+      /* Wait for the load */
+      ceu_wait_slot(b, 0);
+
+      /* Copy to FAU */
+      for (unsigned i = 0; i < 3; ++i) {
+         if (batch->num_wg_sysval[i]) {
+            ceu_move64_to(b, address, batch->num_wg_sysval[i]);
+            ceu_store(b, ceu_extract32(b, grid_xyz, i), address,
+                      BITFIELD_MASK(1), 0);
+         }
+      }
+
+      /* Wait for the stores */
+      ceu_wait_slot(b, 0);
+   } else {
+      /* Set size in workgroups per dimension immediately */
+      for (unsigned i = 0; i < 3; ++i)
+         ceu_move32_to(b, ceu_reg32(b, 37 + i), info->grid[i]);
+   }
+
+   /* Dispatch. We could be much smarter choosing task size..
+    *
+    * TODO: How to choose correctly?
+    *
+    * XXX: Why are compute kernels failing if I make this smaller? Race
+    * condition maybe? Cache badnesss?
+    */
+   ceu_run_compute(b, 10, MALI_TASK_AXIS_Z);
+   batch->any_compute = true;
+
+   panfrost_flush_all_batches(ctx, "Launch grid post-barrier");
+}
+#endif
+/*
+ * Entrypoint for draws on JM/CSF Mali. Depending on generation, this requires
+ * emitting jobs for indirect drawing, transform feedback, vertex shading, and
+ * tiling.
  */
 static void
 panfrost_direct_draw(struct panfrost_batch *batch,
@@ -3775,42 +3879,169 @@ panfrost_direct_draw(struct panfrost_batch *batch,
    ctx->active_prim = info->mode;
    ctx->drawid = drawid_offset;
 
+   struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
+   struct panfrost_compiled_shader *fs = ctx->prog[PIPE_SHADER_FRAGMENT];
+
+   bool secondary_shader = vs->info.vs.secondary_enable;
+   bool idvs = vs->info.vs.idvs;
+   UNUSED struct panfrost_ptr tiler, vertex;
+   bool fs_required;
+
+   if (PAN_USE_CSF) {
+      fs_required = panfrost_fs_required(fs, ctx->blend, &ctx->pipe_framebuffer,
+                                         ctx->depth_stencil);
+      assert(idvs && "IDVS required for CSF");
+      secondary_shader = secondary_shader && fs_required;
+   } else {
+#if !PAN_USE_CSF
+      if (idvs) {
+#if PAN_ARCH == 9
+         tiler = pan_pool_alloc_desc(&batch->pool.base, MALLOC_VERTEX_JOB);
+#elif PAN_ARCH >= 6
+         tiler = pan_pool_alloc_desc(&batch->pool.base, INDEXED_VERTEX_JOB);
+#else
+         unreachable("IDVS is unsupported on Midgard");
+#endif
+      } else {
+         vertex = pan_pool_alloc_desc(&batch->pool.base, COMPUTE_JOB);
+         tiler = pan_pool_alloc_desc(&batch->pool.base, TILER_JOB);
+      }
+#endif
+   }
+
+   unsigned vertex_count = ctx->vertex_count;
+
+   unsigned min_index = 0, max_index = 0;
+   mali_ptr indices = 0;
+
+   if (info->index_size && PAN_ARCH >= 9) {
+      indices = panfrost_get_index_buffer(batch, info, draw);
+
+      /* Use index count to estimate vertex count */
+      if (!PAN_USE_CSF)
+         panfrost_increase_vertex_count(batch, draw->count);
+   } else if (info->index_size) {
+      indices = panfrost_get_index_buffer_bounded(batch, info, draw, &min_index,
+                                                  &max_index);
+
+      /* Use the corresponding values */
+      vertex_count = max_index - min_index + 1;
+      ctx->offset_start = min_index + draw->index_bias;
+      panfrost_increase_vertex_count(batch, vertex_count);
+   } else {
+      ctx->offset_start = draw->start;
+
+      if (!PAN_USE_CSF)
+         panfrost_increase_vertex_count(batch, vertex_count);
+   }
+
+   if (!PAN_USE_CSF && info->instance_count > 1) {
+      unsigned count = vertex_count;
+
+      /* Index-Driven Vertex Shading requires different instances to
+       * have different cache lines for position results. Each vertex
+       * position is 16 bytes and the Mali cache line is 64 bytes, so
+       * the instance count must be aligned to 4 vertices.
+       */
+      if (idvs)
+         count = ALIGN_POT(count, 4);
+
+      ctx->padded_count = panfrost_padded_vertex_count(count);
+   } else
+      ctx->padded_count = vertex_count;
+
+   panfrost_statistics_record(ctx, info, draw);
+
+#if PAN_ARCH <= 7
+   struct mali_invocation_packed invocation;
+   if (info->instance_count > 1) {
+      panfrost_pack_work_groups_compute(&invocation, 1, vertex_count,
+                                        info->instance_count, 1, 1, 1, true,
+                                        false);
+   } else {
+      pan_pack(&invocation, INVOCATION, cfg) {
+         cfg.invocations = vertex_count - 1;
+         cfg.size_y_shift = 0;
+         cfg.size_z_shift = 0;
+         cfg.workgroups_x_shift = 0;
+         cfg.workgroups_y_shift = 0;
+         cfg.workgroups_z_shift = 32;
+         cfg.thread_group_split = MALI_SPLIT_MIN_EFFICIENT;
+      }
+   }
+
+   /* Emit all sort of descriptors. */
+   mali_ptr varyings = 0, vs_vary = 0, fs_vary = 0, pos = 0, psiz = 0;
+
+   panfrost_emit_varying_descriptor(
+      batch, ctx->padded_count * ctx->instance_count, &vs_vary, &fs_vary,
+      &varyings, NULL, &pos, &psiz, info->mode == MESA_PRIM_POINTS);
+
+   mali_ptr attribs, attrib_bufs;
+   attribs = panfrost_emit_vertex_data(batch, &attrib_bufs);
+#endif
+
    panfrost_update_state_3d(batch);
    panfrost_update_shader_state(batch, PIPE_SHADER_VERTEX);
    panfrost_update_shader_state(batch, PIPE_SHADER_FRAGMENT);
    panfrost_clean_state_3d(ctx);
 
-   struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
-   struct panfrost_compiled_shader *fs = ctx->prog[PIPE_SHADER_FRAGMENT];
-   bool fs_required = panfrost_fs_required(
-      fs, ctx->blend, &ctx->pipe_framebuffer, ctx->depth_stencil);
-
-   assert(vs->info.vs.idvs && "IDVS required for CSF");
-   bool secondary_shader = vs->info.vs.secondary_enable && fs_required;
-   mali_ptr indices = 0;
-
-   if (info->index_size) {
-      indices = panfrost_get_index_buffer(batch, info, draw);
-   } else {
-      ctx->offset_start = draw->start;
-   }
-
-   panfrost_statistics_record(ctx, info, draw);
-
+#if PAN_USE_CSF
    /* Same register for XFB (compute) and IDVS */
    ceu_builder *b = batch->ceu_builder;
    ceu_move64_to(b, ceu_reg64(b, 24), batch->tls.gpu);
+#endif
 
-   if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb &&
-       batch->ctx->streamout.num_targets > 0) {
-      panfrost_launch_xfb(batch, info, 0, 0, draw->start, draw->count);
+   if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb) {
+#if PAN_ARCH >= 9
+      mali_ptr attribs = 0, attrib_bufs = 0;
+#endif
+      panfrost_launch_xfb(batch, info, attribs, attrib_bufs, draw->start,
+                          draw->count);
    }
 
    /* Increment transform feedback offsets */
    panfrost_update_streamout_offsets(ctx);
 
+   /* Any side effects must be handled by the XFB shader, so we only need
+    * to run vertex shaders if we need rasterization.
+    */
    if (panfrost_batch_skip_rasterization(batch))
       return;
+
+#if !PAN_USE_CSF
+
+#if PAN_ARCH == 9
+   assert(idvs && "Memory allocated IDVS required on Valhall");
+
+   panfrost_emit_malloc_vertex(batch, info, draw, indices, secondary_shader,
+                               tiler.cpu);
+
+   panfrost_add_job(&batch->pool.base, &batch->scoreboard,
+                    MALI_JOB_TYPE_MALLOC_VERTEX, false, false, 0, 0, &tiler,
+                    false);
+#else
+   /* Fire off the draw itself */
+   panfrost_draw_emit_tiler(batch, info, draw, &invocation, indices, fs_vary,
+                            varyings, pos, psiz, secondary_shader, tiler.cpu);
+   if (idvs) {
+#if PAN_ARCH >= 6
+      panfrost_draw_emit_vertex_section(
+         batch, vs_vary, varyings, attribs, attrib_bufs,
+         pan_section_ptr(tiler.cpu, INDEXED_VERTEX_JOB, VERTEX_DRAW));
+
+      panfrost_add_job(&batch->pool.base, &batch->scoreboard,
+                       MALI_JOB_TYPE_INDEXED_VERTEX, false, false, 0, 0, &tiler,
+                       false);
+#endif
+   } else {
+      panfrost_draw_emit_vertex(batch, info, &invocation, vs_vary, varyings,
+                                attribs, attrib_bufs, vertex.cpu);
+      panfrost_emit_vertex_tiler_jobs(batch, &vertex, &tiler);
+   }
+#endif
+
+#else // PAN_USE_CSF
 
    panfrost_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
                              panfrost_get_position_shader(batch, info));
@@ -4001,280 +4232,10 @@ panfrost_direct_draw(struct panfrost_batch *batch,
    ceu_run_idvs(b, pan_draw_mode(info->mode),
                 panfrost_translate_index_size(info->index_size),
                 secondary_shader);
-}
-
-/*
- * Launch grid is the compute equivalent of draw_vbo. Set up the registers for a
- * compute kernel and emit the run_compute command.
- */
-static void
-panfrost_launch_grid(struct pipe_context *pipe,
-                     const struct pipe_grid_info *info)
-{
-   struct panfrost_context *ctx = pan_context(pipe);
-
-   /* XXX - shouldn't be necessary with working memory barriers. Affected
-    * test: KHR-GLES31.core.compute_shader.pipeline-post-xfb */
-   panfrost_flush_all_batches(ctx, "Launch grid pre-barrier");
-
-   struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
-
-   ctx->compute_grid = info;
-
-   /* Conservatively assume workgroup size changes every launch */
-   ctx->dirty |= PAN_DIRTY_PARAMS;
-
-   panfrost_update_shader_state(batch, PIPE_SHADER_COMPUTE);
-
-   /* Empty compute programs are invalid and don't make sense */
-   if (batch->rsd[PIPE_SHADER_COMPUTE] == 0)
-      return;
-
-   struct panfrost_compiled_shader *cs = ctx->prog[PIPE_SHADER_COMPUTE];
-   ceu_builder *b = batch->ceu_builder;
-
-   panfrost_emit_shader_regs(batch, PIPE_SHADER_COMPUTE,
-                             batch->rsd[PIPE_SHADER_COMPUTE]);
-
-   ceu_move64_to(b, ceu_reg64(b, 24), panfrost_emit_shared_memory(batch, info));
-
-   /* Global attribute offset */
-   ceu_move32_to(b, ceu_reg32(b, 32), 0);
-
-   /* Compute workgroup size */
-   uint32_t wg_size[4];
-   pan_pack(wg_size, COMPUTE_SIZE_WORKGROUP, cfg) {
-      cfg.workgroup_size_x = info->block[0];
-      cfg.workgroup_size_y = info->block[1];
-      cfg.workgroup_size_z = info->block[2];
-
-      /* Workgroups may be merged if the shader does not use barriers
-       * or shared memory. This condition is checked against the
-       * static shared_size at compile-time. We need to check the
-       * variable shared size at launch_grid time, because the
-       * compiler doesn't know about that.
-       */
-      cfg.allow_merging_workgroups = cs->info.cs.allow_merging_workgroups &&
-                                     (info->variable_shared_mem == 0);
-   }
-
-   ceu_move32_to(b, ceu_reg32(b, 33), wg_size[0]);
-
-   /* Offset */
-   for (unsigned i = 0; i < 3; ++i)
-      ceu_move32_to(b, ceu_reg32(b, 34 + i), 0);
-
-   if (info->indirect) {
-      /* Load size in workgroups per dimension from memory */
-      ceu_index address = ceu_reg64(b, 64);
-      ceu_move64_to(b, address,
-                    pan_resource(info->indirect)->image.data.bo->ptr.gpu +
-                       info->indirect_offset);
-
-      ceu_index grid_xyz = ceu_reg_tuple(b, 37, 3);
-      ceu_load_to(b, grid_xyz, address, BITFIELD_MASK(3), 0);
-
-      /* Wait for the load */
-      ceu_wait_slot(b, 0);
-
-      /* Copy to FAU */
-      for (unsigned i = 0; i < 3; ++i) {
-         if (batch->num_wg_sysval[i]) {
-            ceu_move64_to(b, address, batch->num_wg_sysval[i]);
-            ceu_store(b, ceu_extract32(b, grid_xyz, i), address,
-                      BITFIELD_MASK(1), 0);
-         }
-      }
-
-      /* Wait for the stores */
-      ceu_wait_slot(b, 0);
-   } else {
-      /* Set size in workgroups per dimension immediately */
-      for (unsigned i = 0; i < 3; ++i)
-         ceu_move32_to(b, ceu_reg32(b, 37 + i), info->grid[i]);
-   }
-
-   /* Dispatch. We could be much smarter choosing task size..
-    *
-    * TODO: How to choose correctly?
-    *
-    * XXX: Why are compute kernels failing if I make this smaller? Race
-    * condition maybe? Cache badnesss?
-    */
-   ceu_run_compute(b, 10, MALI_TASK_AXIS_Z);
-   batch->any_compute = true;
-
-   panfrost_flush_all_batches(ctx, "Launch grid post-barrier");
-}
-#else
-/*
- * Entrypoint for draws on JM Mali. Depending on generation, this requires
- * emitting jobs for indirect drawing, transform feedback, vertex shading, and
- * tiling.
- */
-static void
-panfrost_direct_draw(struct panfrost_batch *batch,
-                     const struct pipe_draw_info *info, unsigned drawid_offset,
-                     const struct pipe_draw_start_count_bias *draw)
-{
-   if (!draw->count || !info->instance_count)
-      return;
-
-   struct panfrost_context *ctx = batch->ctx;
-
-   panfrost_update_point_sprite_shader(ctx, info);
-
-   /* Take into account a negative bias */
-   ctx->vertex_count =
-      draw->count + (info->index_size ? abs(draw->index_bias) : 0);
-   ctx->instance_count = info->instance_count;
-   ctx->base_vertex = info->index_size ? draw->index_bias : 0;
-   ctx->base_instance = info->start_instance;
-   ctx->active_prim = info->mode;
-   ctx->drawid = drawid_offset;
-
-   struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
-
-   bool idvs = vs->info.vs.idvs;
-   bool secondary_shader = vs->info.vs.secondary_enable;
-
-   UNUSED struct panfrost_ptr tiler, vertex;
-
-   if (idvs) {
-#if PAN_ARCH >= 9
-      tiler = pan_pool_alloc_desc(&batch->pool.base, MALLOC_VERTEX_JOB);
-#elif PAN_ARCH >= 6
-      tiler = pan_pool_alloc_desc(&batch->pool.base, INDEXED_VERTEX_JOB);
-#else
-      unreachable("IDVS is unsupported on Midgard");
-#endif
-   } else {
-      vertex = pan_pool_alloc_desc(&batch->pool.base, COMPUTE_JOB);
-      tiler = pan_pool_alloc_desc(&batch->pool.base, TILER_JOB);
-   }
-
-   unsigned vertex_count = ctx->vertex_count;
-
-   unsigned min_index = 0, max_index = 0;
-   mali_ptr indices = 0;
-
-   if (info->index_size && PAN_ARCH >= 9) {
-      indices = panfrost_get_index_buffer(batch, info, draw);
-
-      /* Use index count to estimate vertex count */
-      panfrost_increase_vertex_count(batch, draw->count);
-   } else if (info->index_size) {
-      indices = panfrost_get_index_buffer_bounded(batch, info, draw, &min_index,
-                                                  &max_index);
-
-      /* Use the corresponding values */
-      vertex_count = max_index - min_index + 1;
-      ctx->offset_start = min_index + draw->index_bias;
-      panfrost_increase_vertex_count(batch, vertex_count);
-   } else {
-      ctx->offset_start = draw->start;
-      panfrost_increase_vertex_count(batch, vertex_count);
-   }
-
-   if (info->instance_count > 1) {
-      unsigned count = vertex_count;
-
-      /* Index-Driven Vertex Shading requires different instances to
-       * have different cache lines for position results. Each vertex
-       * position is 16 bytes and the Mali cache line is 64 bytes, so
-       * the instance count must be aligned to 4 vertices.
-       */
-      if (idvs)
-         count = ALIGN_POT(count, 4);
-
-      ctx->padded_count = panfrost_padded_vertex_count(count);
-   } else
-      ctx->padded_count = vertex_count;
-
-   panfrost_statistics_record(ctx, info, draw);
-
-#if PAN_ARCH <= 7
-   struct mali_invocation_packed invocation;
-   if (info->instance_count > 1) {
-      panfrost_pack_work_groups_compute(&invocation, 1, vertex_count,
-                                        info->instance_count, 1, 1, 1, true,
-                                        false);
-   } else {
-      pan_pack(&invocation, INVOCATION, cfg) {
-         cfg.invocations = vertex_count - 1;
-         cfg.size_y_shift = 0;
-         cfg.size_z_shift = 0;
-         cfg.workgroups_x_shift = 0;
-         cfg.workgroups_y_shift = 0;
-         cfg.workgroups_z_shift = 32;
-         cfg.thread_group_split = MALI_SPLIT_MIN_EFFICIENT;
-      }
-   }
-
-   /* Emit all sort of descriptors. */
-   mali_ptr varyings = 0, vs_vary = 0, fs_vary = 0, pos = 0, psiz = 0;
-
-   panfrost_emit_varying_descriptor(
-      batch, ctx->padded_count * ctx->instance_count, &vs_vary, &fs_vary,
-      &varyings, NULL, &pos, &psiz, info->mode == MESA_PRIM_POINTS);
-
-   mali_ptr attribs, attrib_bufs;
-   attribs = panfrost_emit_vertex_data(batch, &attrib_bufs);
-#endif
-
-   panfrost_update_state_3d(batch);
-   panfrost_update_shader_state(batch, PIPE_SHADER_VERTEX);
-   panfrost_update_shader_state(batch, PIPE_SHADER_FRAGMENT);
-   panfrost_clean_state_3d(ctx);
-
-   if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb) {
-#if PAN_ARCH >= 9
-      mali_ptr attribs = 0, attrib_bufs = 0;
-#endif
-      panfrost_launch_xfb(batch, info, attribs, attrib_bufs, draw->start,
-                          draw->count);
-   }
-
-   /* Increment transform feedback offsets */
-   panfrost_update_streamout_offsets(ctx);
-
-   /* Any side effects must be handled by the XFB shader, so we only need
-    * to run vertex shaders if we need rasterization.
-    */
-   if (panfrost_batch_skip_rasterization(batch))
-      return;
-
-#if PAN_ARCH == 9
-   assert(idvs && "Memory allocated IDVS required on Valhall");
-
-   panfrost_emit_malloc_vertex(batch, info, draw, indices, secondary_shader,
-                               tiler.cpu);
-
-   panfrost_add_job(&batch->pool.base, &batch->scoreboard,
-                    MALI_JOB_TYPE_MALLOC_VERTEX, false, false, 0, 0, &tiler,
-                    false);
-#else
-   /* Fire off the draw itself */
-   panfrost_draw_emit_tiler(batch, info, draw, &invocation, indices, fs_vary,
-                            varyings, pos, psiz, secondary_shader, tiler.cpu);
-   if (idvs) {
-#if PAN_ARCH >= 6
-      panfrost_draw_emit_vertex_section(
-         batch, vs_vary, varyings, attribs, attrib_bufs,
-         pan_section_ptr(tiler.cpu, INDEXED_VERTEX_JOB, VERTEX_DRAW));
-
-      panfrost_add_job(&batch->pool.base, &batch->scoreboard,
-                       MALI_JOB_TYPE_INDEXED_VERTEX, false, false, 0, 0, &tiler,
-                       false);
-#endif
-   } else {
-      panfrost_draw_emit_vertex(batch, info, &invocation, vs_vary, varyings,
-                                attribs, attrib_bufs, vertex.cpu);
-      panfrost_emit_vertex_tiler_jobs(batch, &vertex, &tiler);
-   }
 #endif
 }
 
+#if !PAN_USE_CSF
 /*
  * Launch grid is the compute equivalent of draw_vbo, so in this routine, we
  * construct the COMPUTE job and add it to the job chain.
