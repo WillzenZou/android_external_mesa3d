@@ -3533,51 +3533,19 @@ panfrost_draw_emit_tiler(struct panfrost_batch *batch,
 #endif
 
 #if !PAN_USE_CSF
+
 static void
-panfrost_launch_xfb(struct panfrost_batch *batch,
-                    const struct pipe_draw_info *info, mali_ptr attribs,
-                    mali_ptr attrib_bufs, unsigned count)
+launch_xfb_jm(struct panfrost_batch *batch, const struct pipe_draw_info *info,
+              mali_ptr attribs, mali_ptr attrib_bufs, unsigned count)
 {
-   struct panfrost_context *ctx = batch->ctx;
-
-   struct panfrost_ptr t = pan_pool_alloc_desc(&batch->pool.base, COMPUTE_JOB);
-
-   /* Nothing to do */
-   if (batch->ctx->streamout.num_targets == 0)
-      return;
-
-   /* TODO: XFB with index buffers */
-   // assert(info->index_size == 0);
-   u_trim_pipe_prim(info->mode, &count);
-
-   if (count == 0)
-      return;
-
-   perf_debug_ctx(batch->ctx, "Emulating transform feedback");
-
-   struct panfrost_uncompiled_shader *vs_uncompiled =
-      ctx->uncompiled[PIPE_SHADER_VERTEX];
-   struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
-
-   vs_uncompiled->xfb->stream_output = vs->stream_output;
-
-   mali_ptr saved_rsd = batch->rsd[PIPE_SHADER_VERTEX];
-   mali_ptr saved_ubo = batch->uniform_buffers[PIPE_SHADER_VERTEX];
-   mali_ptr saved_push = batch->push_uniforms[PIPE_SHADER_VERTEX];
-   unsigned saved_nr_push_uniforms =
-      batch->nr_push_uniforms[PIPE_SHADER_VERTEX];
-
-   ctx->uncompiled[PIPE_SHADER_VERTEX] = NULL; /* should not be read */
-   ctx->prog[PIPE_SHADER_VERTEX] = vs_uncompiled->xfb;
-   batch->rsd[PIPE_SHADER_VERTEX] =
-      panfrost_emit_compute_shader_meta(batch, PIPE_SHADER_VERTEX);
-
    batch->uniform_buffers[PIPE_SHADER_VERTEX] =
       panfrost_emit_const_buf(batch, PIPE_SHADER_VERTEX, NULL,
                               &batch->push_uniforms[PIPE_SHADER_VERTEX],
                               &batch->nr_push_uniforms[PIPE_SHADER_VERTEX]);
 
-#if PAN_ARCH >= 9
+   struct panfrost_ptr t = pan_pool_alloc_desc(&batch->pool.base, COMPUTE_JOB);
+
+#if PAN_ARCH == 9
    pan_section_pack(t.cpu, COMPUTE_JOB, PAYLOAD, cfg) {
       cfg.workgroup_size_x = 1;
       cfg.workgroup_size_y = 1;
@@ -3617,6 +3585,99 @@ panfrost_launch_xfb(struct panfrost_batch *batch,
    panfrost_add_job(&batch->pool.base, &batch->scoreboard, job_type, true,
                     false, 0, 0, &t, false);
    batch->any_compute = true;
+}
+
+#else // PAN_USE_CSF
+
+static void
+launch_xfb_csf(struct panfrost_batch *batch, const struct pipe_draw_info *info,
+               unsigned start, unsigned count)
+{
+   ceu_builder *b = batch->ceu_builder;
+
+   /* TODO: Indexing. Also, attribute_offset is a legacy feature..
+    */
+   ceu_move32_to(b, ceu_reg32(b, 32), start);
+
+   /* Compute workgroup size */
+   uint32_t wg_size[4];
+   pan_pack(wg_size, COMPUTE_SIZE_WORKGROUP, cfg) {
+      cfg.workgroup_size_x = 1;
+      cfg.workgroup_size_y = 1;
+      cfg.workgroup_size_z = 1;
+
+      /* Transform feedback shaders do not use barriers or
+       * shared memory, so we may merge workgroups.
+       */
+      cfg.allow_merging_workgroups = true;
+   }
+   ceu_move32_to(b, ceu_reg32(b, 33), wg_size[0]);
+
+   /* Offset */
+   for (unsigned i = 0; i < 3; ++i)
+      ceu_move32_to(b, ceu_reg32(b, 34 + i), 0);
+
+   ceu_move32_to(b, ceu_reg32(b, 37), count);
+   ceu_move32_to(b, ceu_reg32(b, 38), info->instance_count);
+   ceu_move32_to(b, ceu_reg32(b, 39), 1);
+
+   panfrost_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
+                             batch->rsd[PIPE_SHADER_VERTEX]);
+   /* XXX: Choose correctly */
+   ceu_run_compute(b, 10, MALI_TASK_AXIS_Z);
+   batch->any_compute = true;
+
+   /* Reset registers expected to be 0 for IDVS */
+   ceu_move32_to(b, ceu_reg32(b, 31), 0);
+   ceu_move32_to(b, ceu_reg32(b, 32), 0);
+   ceu_move32_to(b, ceu_reg32(b, 37), 0);
+   ceu_move32_to(b, ceu_reg32(b, 38), 0);
+}
+
+#endif
+
+static void
+panfrost_launch_xfb(struct panfrost_batch *batch,
+                    const struct pipe_draw_info *info, mali_ptr attribs,
+                    mali_ptr attrib_bufs, unsigned start, unsigned count)
+{
+   struct panfrost_context *ctx = batch->ctx;
+
+   /* Nothing to do */
+   if (batch->ctx->streamout.num_targets == 0)
+      return;
+
+   /* TODO: XFB with index buffers */
+   // assert(info->index_size == 0);
+   u_trim_pipe_prim(info->mode, &count);
+
+   if (count == 0)
+      return;
+
+   perf_debug_ctx(batch->ctx, "Emulating transform feedback");
+
+   struct panfrost_uncompiled_shader *vs_uncompiled =
+      ctx->uncompiled[PIPE_SHADER_VERTEX];
+   struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
+
+   vs_uncompiled->xfb->stream_output = vs->stream_output;
+
+   mali_ptr saved_rsd = batch->rsd[PIPE_SHADER_VERTEX];
+   mali_ptr saved_ubo = batch->uniform_buffers[PIPE_SHADER_VERTEX];
+   mali_ptr saved_push = batch->push_uniforms[PIPE_SHADER_VERTEX];
+   unsigned saved_nr_push_uniforms =
+      batch->nr_push_uniforms[PIPE_SHADER_VERTEX];
+
+   ctx->uncompiled[PIPE_SHADER_VERTEX] = NULL; /* should not be read */
+   ctx->prog[PIPE_SHADER_VERTEX] = vs_uncompiled->xfb;
+   batch->rsd[PIPE_SHADER_VERTEX] =
+      panfrost_emit_compute_shader_meta(batch, PIPE_SHADER_VERTEX);
+
+#if !PAN_USE_CSF
+   launch_xfb_jm(batch, info, attribs, attrib_bufs, count);
+#else
+   launch_xfb_csf(batch, info, start, count);
+#endif
 
    ctx->uncompiled[PIPE_SHADER_VERTEX] = vs_uncompiled;
    ctx->prog[PIPE_SHADER_VERTEX] = vs;
@@ -3625,7 +3686,6 @@ panfrost_launch_xfb(struct panfrost_batch *batch,
    batch->push_uniforms[PIPE_SHADER_VERTEX] = saved_push;
    batch->nr_push_uniforms[PIPE_SHADER_VERTEX] = saved_nr_push_uniforms;
 }
-#endif
 
 /*
  * Increase the vertex count on the batch using a saturating add, and hope the
@@ -3737,76 +3797,13 @@ panfrost_direct_draw(struct panfrost_batch *batch,
 
    panfrost_statistics_record(ctx, info, draw);
 
-   unsigned count = draw->count;
-   u_trim_pipe_prim(info->mode, &count);
-
    /* Same register for XFB (compute) and IDVS */
    ceu_builder *b = batch->ceu_builder;
    ceu_move64_to(b, ceu_reg64(b, 24), batch->tls.gpu);
 
    if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb &&
-       batch->ctx->streamout.num_targets > 0 && count > 0) {
-      /* TODO: XFB with index buffers */
-      // assert(info->index_size == 0);
-
-      struct panfrost_uncompiled_shader *vs_uncompiled =
-         ctx->uncompiled[PIPE_SHADER_VERTEX];
-      struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
-
-      vs_uncompiled->xfb->stream_output = vs->stream_output;
-
-      mali_ptr saved_rsd = batch->rsd[PIPE_SHADER_VERTEX];
-      mali_ptr saved_ubo = batch->uniform_buffers[PIPE_SHADER_VERTEX];
-      mali_ptr saved_push = batch->push_uniforms[PIPE_SHADER_VERTEX];
-
-      ctx->uncompiled[PIPE_SHADER_VERTEX] = NULL; /* should not be read */
-      ctx->prog[PIPE_SHADER_VERTEX] = vs_uncompiled->xfb;
-      batch->rsd[PIPE_SHADER_VERTEX] =
-         panfrost_emit_compute_shader_meta(batch, PIPE_SHADER_VERTEX);
-
-      /* TODO: Indexing. Also, attribute_offset is a legacy feature..
-       */
-      ceu_move32_to(b, ceu_reg32(b, 32), draw->start);
-
-      /* Compute workgroup size */
-      uint32_t wg_size[4];
-      pan_pack(wg_size, COMPUTE_SIZE_WORKGROUP, cfg) {
-         cfg.workgroup_size_x = 1;
-         cfg.workgroup_size_y = 1;
-         cfg.workgroup_size_z = 1;
-
-         /* Transform feedback shaders do not use barriers or
-          * shared memory, so we may merge workgroups.
-          */
-         cfg.allow_merging_workgroups = true;
-      }
-      ceu_move32_to(b, ceu_reg32(b, 33), wg_size[0]);
-
-      /* Offset */
-      for (unsigned i = 0; i < 3; ++i)
-         ceu_move32_to(b, ceu_reg32(b, 34 + i), 0);
-
-      ceu_move32_to(b, ceu_reg32(b, 37), count);
-      ceu_move32_to(b, ceu_reg32(b, 38), info->instance_count);
-      ceu_move32_to(b, ceu_reg32(b, 39), 1);
-
-      panfrost_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
-                                batch->rsd[PIPE_SHADER_VERTEX]);
-      /* XXX: Choose correctly */
-      ceu_run_compute(b, 10, MALI_TASK_AXIS_Z);
-      batch->any_compute = true;
-
-      ctx->uncompiled[PIPE_SHADER_VERTEX] = vs_uncompiled;
-      ctx->prog[PIPE_SHADER_VERTEX] = vs;
-      batch->rsd[PIPE_SHADER_VERTEX] = saved_rsd;
-      batch->uniform_buffers[PIPE_SHADER_VERTEX] = saved_ubo;
-      batch->push_uniforms[PIPE_SHADER_VERTEX] = saved_push;
-
-      /* Reset registers expected to be 0 for IDVS */
-      ceu_move32_to(b, ceu_reg32(b, 31), 0);
-      ceu_move32_to(b, ceu_reg32(b, 32), 0);
-      ceu_move32_to(b, ceu_reg32(b, 37), 0);
-      ceu_move32_to(b, ceu_reg32(b, 38), 0);
+       batch->ctx->streamout.num_targets > 0) {
+      panfrost_launch_xfb(batch, info, 0, 0, draw->start, draw->count);
    }
 
    /* Increment transform feedback offsets */
@@ -4234,7 +4231,8 @@ panfrost_direct_draw(struct panfrost_batch *batch,
 #if PAN_ARCH >= 9
       mali_ptr attribs = 0, attrib_bufs = 0;
 #endif
-      panfrost_launch_xfb(batch, info, attribs, attrib_bufs, draw->count);
+      panfrost_launch_xfb(batch, info, attribs, attrib_bufs, draw->start,
+                          draw->count);
    }
 
    /* Increment transform feedback offsets */
