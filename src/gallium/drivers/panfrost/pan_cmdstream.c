@@ -52,6 +52,7 @@
 #include "drm-uapi/panthor_drm.h"
 
 #define PAN_GPU_INDIRECTS (PAN_ARCH == 7)
+#define PAN_USE_CSF       (PAN_ARCH >= 10)
 
 struct panfrost_rasterizer {
    struct pipe_rasterizer_state base;
@@ -2639,7 +2640,7 @@ panfrost_initialize_surface(struct panfrost_batch *batch,
 static void
 panfrost_emit_heap_set(struct panfrost_batch *batch, u64 heap_ctx_gpu_va)
 {
-#if PAN_ARCH >= 10
+#if PAN_USE_CSF
    ceu_builder *b = batch->ceu_builder;
 
    /* Setup the tiler heap */
@@ -2652,7 +2653,7 @@ panfrost_emit_heap_set(struct panfrost_batch *batch, u64 heap_ctx_gpu_va)
 static void
 panfrost_emit_batch_end(struct panfrost_batch *batch)
 {
-#if PAN_ARCH >= 10
+#if PAN_USE_CSF
    ceu_builder *b = batch->ceu_builder;
 
    /* Barrier to let everything finish */
@@ -2709,7 +2710,7 @@ emit_fragment_job(struct panfrost_batch *batch, const struct pan_fb_info *pfb)
    assert(batch->maxx > batch->minx);
    assert(batch->maxy > batch->miny);
 
-#if PAN_ARCH >= 10
+#if PAN_USE_CSF
    ceu_builder *b = batch->ceu_builder;
 
    if (batch->draw_count > 0) {
@@ -3030,7 +3031,7 @@ panfrost_batch_get_bifrost_tiler(struct panfrost_batch *batch,
 
    mali_ptr heap, geom_buf = t.gpu;
 
-#if PAN_ARCH >= 10
+#if PAN_USE_CSF
    heap = batch->ctx->heap.desc_bo->ptr.gpu;
 #else
    t = pan_pool_alloc_desc(&batch->pool.base, TILER_HEAP);
@@ -3198,7 +3199,7 @@ panfrost_emit_shader(struct panfrost_batch *batch,
 }
 #endif
 
-#if PAN_ARCH >= 10
+#if PAN_USE_CSF
 static void
 panfrost_emit_shader_regs(struct panfrost_batch *batch,
                           enum pipe_shader_type stage, mali_ptr shader)
@@ -3523,7 +3524,7 @@ panfrost_draw_emit_tiler(struct panfrost_batch *batch,
 }
 #endif
 
-#if PAN_ARCH <= 9
+#if !PAN_USE_CSF
 static void
 panfrost_launch_xfb(struct panfrost_batch *batch,
                     const struct pipe_draw_info *info, mali_ptr attribs,
@@ -3679,7 +3680,7 @@ panfrost_update_point_sprite_shader(struct panfrost_context *ctx,
    }
 }
 
-#if PAN_ARCH >= 10
+#if PAN_USE_CSF
 /*
  * Entrypoint for draws with CSF Mali. This is split out from JM as the handling
  * of indirect draws is completely different, now that we can use the CEU, and
@@ -5005,7 +5006,7 @@ static void
 preload(struct panfrost_batch *batch, struct pan_fb_info *fb)
 {
    GENX(pan_preload_fb)
-   (&batch->pool.base, PAN_ARCH < 10 ? &batch->scoreboard : NULL, fb,
+   (&batch->pool.base, !PAN_USE_CSF ? &batch->scoreboard : NULL, fb,
     batch->tls.gpu, PAN_ARCH >= 6 ? batch->tiler_ctx.bifrost.ctx : 0, NULL);
 }
 
@@ -5040,7 +5041,7 @@ init_batch(struct panfrost_batch *batch)
 #endif
 #endif
 
-#if PAN_ARCH >= 10
+#if PAN_USE_CSF
    /* Allocate and bind the command queue */
    struct ceu_queue queue = ceu_alloc_queue(batch);
 
@@ -5070,7 +5071,7 @@ panfrost_sampler_view_destroy(struct pipe_context *pctx,
    ralloc_free(view);
 }
 
-#if PAN_ARCH >= 10
+#if PAN_USE_CSF
 static void
 panfrost_csf_init_context(struct panfrost_context *ctx)
 {
@@ -5173,7 +5174,7 @@ context_populate_vtbl(struct pipe_context *pipe)
 static void
 context_init(struct panfrost_context *ctx)
 {
-#if PAN_ARCH >= 10
+#if PAN_USE_CSF
    panfrost_csf_init_context(ctx);
 #endif
 }
@@ -5181,7 +5182,7 @@ context_init(struct panfrost_context *ctx)
 static void
 context_cleanup(struct panfrost_context *ctx)
 {
-#if PAN_ARCH >= 10
+#if PAN_USE_CSF
    panfrost_csf_cleanup_context(ctx);
 #endif
 }
