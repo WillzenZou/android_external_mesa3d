@@ -49,6 +49,8 @@
 #include "pan_texture.h"
 #include "pan_util.h"
 
+#include "drm-uapi/panthor_drm.h"
+
 #define PAN_GPU_INDIRECTS (PAN_ARCH == 7)
 
 struct panfrost_rasterizer {
@@ -5105,6 +5107,75 @@ panfrost_sampler_view_destroy(struct pipe_context *pctx,
    ralloc_free(view);
 }
 
+#if PAN_ARCH >= 10
+static void
+panfrost_csf_init_context(struct panfrost_context *ctx)
+{
+   struct panfrost_device *dev = pan_device(ctx->base.screen);
+   struct drm_panthor_queue_create qc[] = {{
+      .priority = 1,
+      .ringbuf_size = 64 * 1024,
+   }};
+
+   struct drm_panthor_group_create gc = {
+      .compute_core_mask = dev->kmod.props.shader_present,
+      .fragment_core_mask = dev->kmod.props.shader_present,
+      .tiler_core_mask = 1,
+      .max_compute_cores = util_bitcount64(dev->kmod.props.shader_present),
+      .max_fragment_cores = util_bitcount64(dev->kmod.props.shader_present),
+      .max_tiler_cores = 1,
+      .priority = PANTHOR_GROUP_PRIORITY_MEDIUM,
+      .queues = DRM_PANTHOR_OBJ_ARRAY(ARRAY_SIZE(qc), qc),
+      .vm_id = pan_kmod_vm_handle(dev->kmod.vm),
+   };
+
+   int ret =
+      drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANTHOR_GROUP_CREATE, &gc);
+
+   assert(!ret);
+
+   ctx->group.handle = gc.group_handle;
+
+   /* Get tiler heap */
+   struct drm_panthor_tiler_heap_create thc = {
+      .vm_id = pan_kmod_vm_handle(dev->kmod.vm),
+      .chunk_size = 2 * 1024 * 1024,
+      .initial_chunk_count = 5,
+      .max_chunks = 64 * 1024,
+      .target_in_flight = 65535,
+   };
+   ret = drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANTHOR_TILER_HEAP_CREATE,
+                  &thc);
+
+   assert(!ret);
+
+   ctx->heap.handle = thc.handle;
+   ctx->heap.tiler_heap_ctx_gpu_va = thc.tiler_heap_ctx_gpu_va;
+   ctx->heap.first_heap_chunk_gpu_va = thc.first_heap_chunk_gpu_va;
+}
+
+static void
+panfrost_csf_cleanup_context(struct panfrost_context *ctx)
+{
+   struct panfrost_device *dev = pan_device(ctx->base.screen);
+   struct drm_panthor_tiler_heap_destroy thd = {
+      .handle = ctx->heap.handle,
+   };
+   int ret = drmIoctl(panfrost_device_fd(dev),
+                      DRM_IOCTL_PANTHOR_TILER_HEAP_DESTROY, &thd);
+   assert(!ret);
+   panfrost_bo_unreference(ctx->heap.desc_bo);
+
+   struct drm_panthor_group_destroy gd = {
+      .group_handle = ctx->group.handle,
+   };
+
+   ret =
+      drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANTHOR_GROUP_DESTROY, &gd);
+   assert(!ret);
+}
+#endif
+
 static void
 context_populate_vtbl(struct pipe_context *pipe)
 {
@@ -5125,11 +5196,17 @@ context_populate_vtbl(struct pipe_context *pipe)
 static void
 context_init(struct panfrost_context *ctx)
 {
+#if PAN_ARCH >= 10
+   panfrost_csf_init_context(ctx);
+#endif
 }
 
 static void
 context_cleanup(struct panfrost_context *ctx)
 {
+#if PAN_ARCH >= 10
+   panfrost_csf_cleanup_context(ctx);
+#endif
 }
 
 #if PAN_ARCH <= 5
