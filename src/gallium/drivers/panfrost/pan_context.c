@@ -579,6 +579,8 @@ panfrost_destroy(struct pipe_context *pipe)
    struct panfrost_context *panfrost = pan_context(pipe);
    struct panfrost_device *dev = pan_device(pipe->screen);
 
+   pan_screen(pipe->screen)->vtbl.context_cleanup(panfrost);
+
    _mesa_hash_table_destroy(panfrost->writers, NULL);
 
    if (panfrost->blitter)
@@ -1061,6 +1063,7 @@ panfrost_create_context(struct pipe_screen *screen, void *priv, unsigned flags)
    assert(!ret);
 
    panfrost_init_cs_queue(ctx);
+   pan_screen(screen)->vtbl.context_init(ctx);
 
    return gallium;
 }

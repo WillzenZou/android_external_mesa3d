@@ -5122,6 +5122,16 @@ context_populate_vtbl(struct pipe_context *pipe)
    pipe->get_sample_position = u_default_get_sample_position;
 }
 
+static void
+context_init(struct panfrost_context *ctx)
+{
+}
+
+static void
+context_cleanup(struct panfrost_context *ctx)
+{
+}
+
 #if PAN_ARCH <= 5
 
 /* Returns the polygon list's GPU address if available, or otherwise allocates
@@ -5193,6 +5203,8 @@ GENX(panfrost_cmdstream_screen_init)(struct panfrost_screen *screen)
    screen->vtbl.screen_destroy = screen_destroy;
    screen->vtbl.preload = preload;
    screen->vtbl.context_populate_vtbl = context_populate_vtbl;
+   screen->vtbl.context_init = context_init;
+   screen->vtbl.context_cleanup = context_cleanup;
    screen->vtbl.init_batch = init_batch;
    screen->vtbl.get_blend_shader = GENX(pan_blend_get_shader_locked);
    screen->vtbl.init_polygon_list = init_polygon_list;
