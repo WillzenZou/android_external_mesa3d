@@ -940,44 +940,7 @@ panfrost_batch_submit_cs_ioctl(struct panfrost_batch *batch, mali_ptr cs_start,
                                         vm_sync_handle, vm_sync_signal_point,
                                         true);
    } else {
-      struct drm_panthor_group_get_state state = {
-         .group_handle = ctx->group.handle,
-      };
-
-      ret = drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANTHOR_GROUP_GET_STATE,
-                     &state);
-      assert(!ret);
-      if (state.state != 0) {
-         struct drm_panthor_group_destroy gd = {
-            .group_handle = ctx->group.handle,
-         };
-
-         ret = drmIoctl(panfrost_device_fd(dev),
-                        DRM_IOCTL_PANTHOR_GROUP_DESTROY, &gd);
-         assert(!ret);
-
-         struct drm_panthor_queue_create qc[] = {{
-            .priority = 1,
-            .ringbuf_size = 64 * 1024,
-         }};
-
-         struct drm_panthor_group_create gc = {
-            .compute_core_mask = ~0,
-            .fragment_core_mask = ~0,
-            .tiler_core_mask = ~0,
-            .max_compute_cores = 64,
-            .max_fragment_cores = 64,
-            .max_tiler_cores = 1,
-            .priority = PANTHOR_GROUP_PRIORITY_MEDIUM,
-            .queues = DRM_PANTHOR_OBJ_ARRAY(ARRAY_SIZE(qc), qc),
-            .vm_id = pan_kmod_vm_handle(dev->kmod.vm),
-         };
-
-         ret = drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANTHOR_GROUP_CREATE,
-                        &gc);
-         assert(!ret);
-         ctx->group.handle = gc.group_handle;
-      }
+      panfrost_context_reinit(ctx);
    }
 
    free(syncs);
