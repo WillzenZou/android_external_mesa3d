@@ -2654,14 +2654,14 @@ panfrost_initialize_surface(struct panfrost_batch *batch,
 }
 
 static void
-panfrost_emit_heap_set(struct panfrost_batch *batch)
+panfrost_emit_heap_set(struct panfrost_batch *batch, u64 heap_ctx_gpu_va)
 {
 #if PAN_ARCH >= 10
    ceu_builder *b = batch->ceu_builder;
 
    /* Setup the tiler heap */
    ceu_index heap = ceu_reg64(b, 72);
-   ceu_move64_to(b, heap, batch->ctx->heap.tiler_heap_ctx_gpu_va);
+   ceu_move64_to(b, heap, heap_ctx_gpu_va);
    ceu_heap_set(b, heap);
 #endif
 }
@@ -3054,17 +3054,6 @@ panfrost_batch_get_bifrost_tiler(struct panfrost_batch *batch,
    mali_ptr heap, geom_buf = t.gpu;
 
 #if PAN_ARCH >= 10
-   if (!batch->ctx->heap.desc_bo) {
-      batch->ctx->heap.desc_bo =
-         panfrost_bo_create(pan_device(batch->ctx->base.screen),
-                            pan_size(TILER_HEAP), 0, "Tiler Heap");
-      pan_pack(batch->ctx->heap.desc_bo->ptr.cpu, TILER_HEAP, heap) {
-         heap.size = 2 * 1024 * 1024;
-         heap.base = batch->ctx->heap.first_heap_chunk_gpu_va;
-         heap.bottom = heap.base + 64;
-         heap.top = heap.base + heap.size;
-      }
-   }
    heap = batch->ctx->heap.desc_bo->ptr.gpu;
 #else
    t = pan_pool_alloc_desc(&batch->pool.base, TILER_HEAP);
@@ -5143,11 +5132,19 @@ panfrost_csf_init_context(struct panfrost_context *ctx)
    assert(!ret);
 
    ctx->heap.handle = thc.handle;
-   ctx->heap.tiler_heap_ctx_gpu_va = thc.tiler_heap_ctx_gpu_va;
-   ctx->heap.first_heap_chunk_gpu_va = thc.first_heap_chunk_gpu_va;
+
+   ctx->heap.desc_bo =
+      panfrost_bo_create(dev,
+                         pan_size(TILER_HEAP), 0, "Tiler Heap");
+   pan_pack(ctx->heap.desc_bo->ptr.cpu, TILER_HEAP, heap) {
+      heap.size = 2 * 1024 * 1024;
+      heap.base = thc.first_heap_chunk_gpu_va;
+      heap.bottom = heap.base + 64;
+      heap.top = heap.base + heap.size;
+   }
 
    struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
-   panfrost_emit_heap_set(batch);
+   panfrost_emit_heap_set(batch, thc.tiler_heap_ctx_gpu_va);
    batch->any_compute = 1;
    panfrost_flush_all_batches(ctx, "Gfx queue init");
 }
@@ -5171,6 +5168,8 @@ panfrost_csf_cleanup_context(struct panfrost_context *ctx)
    ret =
       drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANTHOR_GROUP_DESTROY, &gd);
    assert(!ret);
+
+   panfrost_bo_unreference(ctx->heap.desc_bo);
 }
 #endif
 

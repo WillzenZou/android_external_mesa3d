@@ -234,8 +234,6 @@ struct panfrost_context {
 
    struct {
       uint32_t handle;
-      mali_ptr tiler_heap_ctx_gpu_va;
-      mali_ptr first_heap_chunk_gpu_va;
       struct panfrost_bo *desc_bo;
    } heap;
 };
