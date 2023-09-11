@@ -1085,13 +1085,13 @@ panfrost_ptr_map(struct pipe_context *pctx, struct pipe_resource *resource,
          if (!(bo->flags & PAN_BO_SHARED)) {
             newbo =
                panfrost_bo_create(dev, panfrost_bo_size(bo), flags, bo->label);
-	 }
+         }
 
          if (newbo) {
             if (copy_resource) {
                memcpy(newbo->ptr.cpu, rsrc->image.data.bo->ptr.cpu,
                       panfrost_bo_size(bo));
-	    }
+            }
 
             /* Swap the pointers, dropping a reference to
              * the old BO which is no long referenced from

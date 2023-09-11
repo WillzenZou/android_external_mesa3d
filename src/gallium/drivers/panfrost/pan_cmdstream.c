@@ -2742,7 +2742,8 @@ emit_fragment_job(struct panfrost_batch *batch, const struct pan_fb_info *pfb)
     * (completed_{top,bottom fields}). */
    if (batch->tiler_ctx.bifrost.ctx) {
       ceu_move64_to(b, ceu_reg64(b, 94), batch->tiler_ctx.bifrost.ctx);
-      ceu_load_to(b, ceu_reg_tuple(b, 90, 4), ceu_reg64(b, 94), BITFIELD_MASK(4), 40);
+      ceu_load_to(b, ceu_reg_tuple(b, 90, 4), ceu_reg64(b, 94),
+                  BITFIELD_MASK(4), 40);
       ceu_wait_slot(b, 0);
       ceu_finish_fragment(b, true, ceu_reg64(b, 90), ceu_reg64(b, 92), 0x0, 1);
       ceu_wait_slot(b, 1);
@@ -3031,8 +3032,8 @@ panfrost_batch_get_bifrost_tiler(struct panfrost_batch *batch,
    if (batch->tiler_ctx.bifrost.ctx)
       return batch->tiler_ctx.bifrost.ctx;
 
-   struct panfrost_ptr t =
-      pan_pool_alloc_aligned(&batch->pool.base, POSITION_FIFO_SIZE, POSITION_FIFO_SIZE);
+   struct panfrost_ptr t = pan_pool_alloc_aligned(
+      &batch->pool.base, POSITION_FIFO_SIZE, POSITION_FIFO_SIZE);
 
    mali_ptr heap, geom_buf = t.gpu;
 
@@ -3921,10 +3922,10 @@ panfrost_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 
       if (fs_required) {
          bool has_oq = ctx->occlusion_query && ctx->active_queries;
-         struct pan_earlyzs_state earlyzs =
-            pan_earlyzs_get(fs->earlyzs, ctx->depth_stencil->writes_zs || has_oq,
-                            ctx->blend->base.alpha_to_coverage,
-                            ctx->depth_stencil->zs_always_passes);
+         struct pan_earlyzs_state earlyzs = pan_earlyzs_get(
+            fs->earlyzs, ctx->depth_stencil->writes_zs || has_oq,
+            ctx->blend->base.alpha_to_coverage,
+            ctx->depth_stencil->zs_always_passes);
 
          if (has_oq) {
             if (ctx->occlusion_query->type == PIPE_QUERY_OCCLUSION_COUNTER)
@@ -5008,8 +5009,8 @@ static void
 preload(struct panfrost_batch *batch, struct pan_fb_info *fb)
 {
    GENX(pan_preload_fb)
-   (&batch->pool.base, PAN_ARCH < 10 ? &batch->scoreboard : NULL, fb, batch->tls.gpu,
-    PAN_ARCH >= 6 ? batch->tiler_ctx.bifrost.ctx : 0, NULL);
+   (&batch->pool.base, PAN_ARCH < 10 ? &batch->scoreboard : NULL, fb,
+    batch->tls.gpu, PAN_ARCH >= 6 ? batch->tiler_ctx.bifrost.ctx : 0, NULL);
 }
 
 static void
@@ -5118,8 +5119,7 @@ panfrost_csf_init_context(struct panfrost_context *ctx)
    ctx->heap.handle = thc.handle;
 
    ctx->heap.desc_bo =
-      panfrost_bo_create(dev,
-                         pan_size(TILER_HEAP), 0, "Tiler Heap");
+      panfrost_bo_create(dev, pan_size(TILER_HEAP), 0, "Tiler Heap");
    pan_pack(ctx->heap.desc_bo->ptr.cpu, TILER_HEAP, heap) {
       heap.size = 2 * 1024 * 1024;
       heap.base = thc.first_heap_chunk_gpu_va;

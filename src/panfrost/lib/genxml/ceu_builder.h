@@ -281,8 +281,8 @@ ceu_wait_slots(ceu_builder *b, uint8_t slots)
 }
 
 static inline void
-ceu_branch(ceu_builder *b, int16_t offset,
-           enum mali_ceu_condition cond, ceu_index val)
+ceu_branch(ceu_builder *b, int16_t offset, enum mali_ceu_condition cond,
+           ceu_index val)
 {
    ceu_emit(b, BRANCH, I)
    {
@@ -346,10 +346,11 @@ ceu_finish_tiling(ceu_builder *b)
 static inline void
 ceu_finish_fragment(ceu_builder *b, bool increment_frag_completed,
                     ceu_index first_free_heap_chunk,
-                    ceu_index last_free_heap_chunk,
-                    uint16_t scoreboard_mask, uint8_t signal_slot)
+                    ceu_index last_free_heap_chunk, uint16_t scoreboard_mask,
+                    uint8_t signal_slot)
 {
-   ceu_emit(b, FINISH_FRAGMENT, I) {
+   ceu_emit(b, FINISH_FRAGMENT, I)
+   {
       I.increment_fragment_completed = increment_frag_completed;
       I.wait_mask = scoreboard_mask;
       I.first_heap_chunk = ceu_to_reg64(first_free_heap_chunk);
@@ -534,7 +535,7 @@ ceu_wait_slot(ceu_builder *b, uint8_t slot)
 
 static inline void
 ceu_store_state(ceu_builder *b, uint8_t signal_slot, ceu_index address,
-		enum mali_ceu_state state, uint16_t wait_mask, int16_t offset)
+                enum mali_ceu_state state, uint16_t wait_mask, int16_t offset)
 {
    ceu_emit(b, STORE_STATE, I)
    {

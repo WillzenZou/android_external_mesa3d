@@ -115,7 +115,8 @@ panfrost_dev_query_props(struct pan_kmod_dev *dev,
       panfrost_query_raw(fd, DRM_PANFROST_PARAM_AFBC_FEATURES, false, 0);
 }
 
-static uint32_t to_panfrost_bo_flags(struct pan_kmod_dev *dev, uint32_t flags)
+static uint32_t
+to_panfrost_bo_flags(struct pan_kmod_dev *dev, uint32_t flags)
 {
    uint32_t panfrost_flags = 0;
 
