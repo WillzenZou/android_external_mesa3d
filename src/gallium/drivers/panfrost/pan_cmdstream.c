@@ -4068,13 +4068,13 @@ panfrost_direct_draw(struct panfrost_batch *batch,
    /* Base vertex offset on Valhall is used for both indexed and
     * non-indexed draws, in a simple way for either. Handle both cases.
     */
-   ceu_move32_to(b, ceu_reg32(b, 36),
-                 info->index_size ? draw->index_bias : draw->start);
-
-   if (info->index_size)
+   if (info->index_size) {
+      ceu_move32_to(b, ceu_reg32(b, 36), draw->index_bias);
       ceu_move32_to(b, ceu_reg32(b, 39), info->index_size * draw->count);
-   else
+   } else {
+      ceu_move32_to(b, ceu_reg32(b, 36), draw->start);
       ceu_move32_to(b, ceu_reg32(b, 39), 0);
+   }
 
    ceu_move64_to(b, ceu_reg64(b, 40),
                  panfrost_batch_get_bifrost_tiler(batch, ~0));
