@@ -78,7 +78,8 @@ panvk_queue_submit_batch(struct panvk_queue *queue, struct panvk_batch *batch,
       }
 
       if (debug & PANVK_DEBUG_TRACE)
-         pandecode_jc(batch->scoreboard.first_job, panfrost_device_gpu_id(pdev));
+         pandecode_jc(batch->scoreboard.first_job,
+                      panfrost_device_gpu_id(pdev));
 
       if (debug & PANVK_DEBUG_DUMP)
          pandecode_dump_mappings();
