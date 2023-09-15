@@ -2646,19 +2646,6 @@ panfrost_initialize_surface(struct panfrost_batch *batch,
 }
 
 static void
-panfrost_emit_heap_set(struct panfrost_batch *batch, u64 heap_ctx_gpu_va)
-{
-#if PAN_USE_CSF
-   ceu_builder *b = batch->ceu_builder;
-
-   /* Setup the tiler heap */
-   ceu_index heap = ceu_reg64(b, 72);
-   ceu_move64_to(b, heap, heap_ctx_gpu_va);
-   ceu_heap_set(b, heap);
-#endif
-}
-
-static void
 panfrost_emit_batch_end(struct panfrost_batch *batch)
 {
 #if PAN_USE_CSF
@@ -5045,7 +5032,13 @@ panfrost_csf_init_context(struct panfrost_context *ctx)
    }
 
    struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
-   panfrost_emit_heap_set(batch, thc.tiler_heap_ctx_gpu_va);
+
+   /* Setup the tiler heap */
+   ceu_builder *b = batch->ceu_builder;
+   ceu_index heap = ceu_reg64(b, 72);
+   ceu_move64_to(b, heap, thc.tiler_heap_ctx_gpu_va);
+   ceu_heap_set(b, heap);
+
    batch->any_compute = 1;
    panfrost_flush_all_batches(ctx, "Gfx queue init");
 }
