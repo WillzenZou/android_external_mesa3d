@@ -4052,115 +4052,29 @@ panfrost_draw_get_vertex_count(struct panfrost_batch *batch,
    return vertex_count;
 }
 
-/*
- * Entrypoint for draws on JM/CSF Mali. Depending on generation, this requires
- * emitting jobs for indirect drawing, transform feedback, vertex shading, and
- * tiling.
- */
+#if PAN_USE_CSF
 static void
-panfrost_direct_draw(struct panfrost_batch *batch,
-                     const struct pipe_draw_info *info, unsigned drawid_offset,
-                     const struct pipe_draw_start_count_bias *draw)
+csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
+              unsigned drawid_offset,
+              const struct pipe_draw_start_count_bias *draw, mali_ptr indices,
+              unsigned vertex_count)
 {
-   if (!draw->count || !info->instance_count)
-      return;
-
    struct panfrost_context *ctx = batch->ctx;
-
-   panfrost_update_point_sprite_shader(ctx, info);
-
-   /* Take into account a negative bias */
-   ctx->vertex_count =
-      draw->count + (info->index_size ? abs(draw->index_bias) : 0);
-   ctx->instance_count = info->instance_count;
-   ctx->base_vertex = info->index_size ? draw->index_bias : 0;
-   ctx->base_instance = info->start_instance;
-   ctx->active_prim = info->mode;
-   ctx->drawid = drawid_offset;
-
    struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
    struct panfrost_compiled_shader *fs = ctx->prog[PIPE_SHADER_FRAGMENT];
-
-   bool secondary_shader = vs->info.vs.secondary_enable;
    bool idvs = vs->info.vs.idvs;
-   UNUSED struct panfrost_ptr tiler, vertex;
-   bool fs_required;
+   bool fs_required = panfrost_fs_required(
+      fs, ctx->blend, &ctx->pipe_framebuffer, ctx->depth_stencil);
+   bool secondary_shader = vs->info.vs.secondary_enable && fs_required;
 
-   if (PAN_USE_CSF) {
-      fs_required = panfrost_fs_required(fs, ctx->blend, &ctx->pipe_framebuffer,
-                                         ctx->depth_stencil);
-      assert(idvs && "IDVS required for CSF");
-      secondary_shader = secondary_shader && fs_required;
-   } else {
-#if !PAN_USE_CSF
-      if (idvs) {
-#if PAN_ARCH == 9
-         tiler = pan_pool_alloc_desc(&batch->pool.base, MALLOC_VERTEX_JOB);
-#elif PAN_ARCH >= 6
-         tiler = pan_pool_alloc_desc(&batch->pool.base, INDEXED_VERTEX_JOB);
-#else
-         unreachable("IDVS is unsupported on Midgard");
-#endif
-      } else {
-         vertex = pan_pool_alloc_desc(&batch->pool.base, COMPUTE_JOB);
-         tiler = pan_pool_alloc_desc(&batch->pool.base, TILER_JOB);
-      }
-#endif
-   }
+   assert(idvs && "IDVS required for CSF");
 
-   mali_ptr indices;
-   UNUSED unsigned vertex_count =
-      panfrost_draw_get_vertex_count(batch, info, draw, &indices, idvs);
-
-   panfrost_statistics_record(ctx, info, draw);
-
-#if PAN_ARCH <= 7
-   struct mali_invocation_packed invocation;
-   if (info->instance_count > 1) {
-      panfrost_pack_work_groups_compute(&invocation, 1, vertex_count,
-                                        info->instance_count, 1, 1, 1, true,
-                                        false);
-   } else {
-      pan_pack(&invocation, INVOCATION, cfg) {
-         cfg.invocations = vertex_count - 1;
-         cfg.size_y_shift = 0;
-         cfg.size_z_shift = 0;
-         cfg.workgroups_x_shift = 0;
-         cfg.workgroups_y_shift = 0;
-         cfg.workgroups_z_shift = 32;
-         cfg.thread_group_split = MALI_SPLIT_MIN_EFFICIENT;
-      }
-   }
-
-   /* Emit all sort of descriptors. */
-   mali_ptr varyings = 0, vs_vary = 0, fs_vary = 0, pos = 0, psiz = 0;
-
-   panfrost_emit_varying_descriptor(
-      batch, ctx->padded_count * ctx->instance_count, &vs_vary, &fs_vary,
-      &varyings, NULL, &pos, &psiz, info->mode == MESA_PRIM_POINTS);
-
-   mali_ptr attribs, attrib_bufs;
-   attribs = panfrost_emit_vertex_data(batch, &attrib_bufs);
-#endif
-
-   panfrost_update_state_3d(batch);
-   panfrost_update_shader_state(batch, PIPE_SHADER_VERTEX);
-   panfrost_update_shader_state(batch, PIPE_SHADER_FRAGMENT);
-   panfrost_clean_state_3d(ctx);
-
-#if PAN_USE_CSF
    /* Same register for XFB (compute) and IDVS */
    ceu_builder *b = batch->ceu_builder;
    ceu_move64_to(b, ceu_reg64(b, 24), batch->tls.gpu);
-#endif
 
-   if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb) {
-#if PAN_ARCH >= 9
-      mali_ptr attribs = 0, attrib_bufs = 0;
-#endif
-      panfrost_launch_xfb(batch, info, attribs, attrib_bufs, draw->start,
-                          draw->count);
-   }
+   if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb)
+      panfrost_launch_xfb(batch, info, 0, 0, draw->start, draw->count);
 
    /* Increment transform feedback offsets */
    panfrost_update_streamout_offsets(ctx);
@@ -4170,40 +4084,6 @@ panfrost_direct_draw(struct panfrost_batch *batch,
     */
    if (panfrost_batch_skip_rasterization(batch))
       return;
-
-#if !PAN_USE_CSF
-
-#if PAN_ARCH == 9
-   assert(idvs && "Memory allocated IDVS required on Valhall");
-
-   panfrost_emit_malloc_vertex(batch, info, draw, indices, secondary_shader,
-                               tiler.cpu);
-
-   panfrost_add_job(&batch->pool.base, &batch->scoreboard,
-                    MALI_JOB_TYPE_MALLOC_VERTEX, false, false, 0, 0, &tiler,
-                    false);
-#else
-   /* Fire off the draw itself */
-   panfrost_draw_emit_tiler(batch, info, draw, &invocation, indices, fs_vary,
-                            varyings, pos, psiz, secondary_shader, tiler.cpu);
-   if (idvs) {
-#if PAN_ARCH >= 6
-      panfrost_draw_emit_vertex_section(
-         batch, vs_vary, varyings, attribs, attrib_bufs,
-         pan_section_ptr(tiler.cpu, INDEXED_VERTEX_JOB, VERTEX_DRAW));
-
-      panfrost_add_job(&batch->pool.base, &batch->scoreboard,
-                       MALI_JOB_TYPE_INDEXED_VERTEX, false, false, 0, 0, &tiler,
-                       false);
-#endif
-   } else {
-      panfrost_draw_emit_vertex(batch, info, &invocation, vs_vary, varyings,
-                                attribs, attrib_bufs, vertex.cpu);
-      panfrost_emit_vertex_tiler_jobs(batch, &vertex, &tiler);
-   }
-#endif
-
-#else // PAN_USE_CSF
 
    csf_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
                         panfrost_get_position_shader(batch, info));
@@ -4394,7 +4274,148 @@ panfrost_direct_draw(struct panfrost_batch *batch,
    ceu_run_idvs(b, pan_draw_mode(info->mode),
                 panfrost_translate_index_size(info->index_size),
                 secondary_shader);
+}
+#else // PAN_USE_CSF
+static void
+jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
+             unsigned drawid_offset,
+             const struct pipe_draw_start_count_bias *draw, mali_ptr indices,
+             unsigned vertex_count)
+{
+   struct panfrost_context *ctx = batch->ctx;
+   struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
+   bool secondary_shader = vs->info.vs.secondary_enable;
+   bool idvs = vs->info.vs.idvs;
+   mali_ptr attribs = 0, attrib_bufs = 0;
+
+#if PAN_ARCH <= 7
+   struct mali_invocation_packed invocation;
+   if (info->instance_count > 1) {
+      panfrost_pack_work_groups_compute(&invocation, 1, vertex_count,
+                                        info->instance_count, 1, 1, 1, true,
+                                        false);
+   } else {
+      pan_pack(&invocation, INVOCATION, cfg) {
+         cfg.invocations = vertex_count - 1;
+         cfg.size_y_shift = 0;
+         cfg.size_z_shift = 0;
+         cfg.workgroups_x_shift = 0;
+         cfg.workgroups_y_shift = 0;
+         cfg.workgroups_z_shift = 32;
+         cfg.thread_group_split = MALI_SPLIT_MIN_EFFICIENT;
+      }
+   }
+
+   /* Emit all sort of descriptors. */
+   mali_ptr varyings = 0, vs_vary = 0, fs_vary = 0, pos = 0, psiz = 0;
+
+   panfrost_emit_varying_descriptor(
+      batch, ctx->padded_count * ctx->instance_count, &vs_vary, &fs_vary,
+      &varyings, NULL, &pos, &psiz, info->mode == MESA_PRIM_POINTS);
+
+   attribs = panfrost_emit_vertex_data(batch, &attrib_bufs);
 #endif
+
+   if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb)
+      panfrost_launch_xfb(batch, info, attribs, attrib_bufs, draw->start,
+                          draw->count);
+
+   /* Increment transform feedback offsets */
+   panfrost_update_streamout_offsets(ctx);
+
+   /* Any side effects must be handled by the XFB shader, so we only need
+    * to run vertex shaders if we need rasterization.
+    */
+   if (panfrost_batch_skip_rasterization(batch))
+      return;
+
+   UNUSED struct panfrost_ptr tiler, vertex;
+
+   if (idvs) {
+#if PAN_ARCH == 9
+      tiler = pan_pool_alloc_desc(&batch->pool.base, MALLOC_VERTEX_JOB);
+#elif PAN_ARCH >= 6
+      tiler = pan_pool_alloc_desc(&batch->pool.base, INDEXED_VERTEX_JOB);
+#else
+      unreachable("IDVS is unsupported on Midgard");
+#endif
+   } else {
+      vertex = pan_pool_alloc_desc(&batch->pool.base, COMPUTE_JOB);
+      tiler = pan_pool_alloc_desc(&batch->pool.base, TILER_JOB);
+   }
+
+#if PAN_ARCH == 9
+   assert(idvs && "Memory allocated IDVS required on Valhall");
+
+   panfrost_emit_malloc_vertex(batch, info, draw, indices, secondary_shader,
+                               tiler.cpu);
+
+   panfrost_add_job(&batch->pool.base, &batch->scoreboard,
+                    MALI_JOB_TYPE_MALLOC_VERTEX, false, false, 0, 0, &tiler,
+                    false);
+#else
+   /* Fire off the draw itself */
+   panfrost_draw_emit_tiler(batch, info, draw, &invocation, indices, fs_vary,
+                            varyings, pos, psiz, secondary_shader, tiler.cpu);
+   if (idvs) {
+#if PAN_ARCH >= 6
+      panfrost_draw_emit_vertex_section(
+         batch, vs_vary, varyings, attribs, attrib_bufs,
+         pan_section_ptr(tiler.cpu, INDEXED_VERTEX_JOB, VERTEX_DRAW));
+
+      panfrost_add_job(&batch->pool.base, &batch->scoreboard,
+                       MALI_JOB_TYPE_INDEXED_VERTEX, false, false, 0, 0, &tiler,
+                       false);
+#endif
+   } else {
+      panfrost_draw_emit_vertex(batch, info, &invocation, vs_vary, varyings,
+                                attribs, attrib_bufs, vertex.cpu);
+      panfrost_emit_vertex_tiler_jobs(batch, &vertex, &tiler);
+   }
+#endif
+}
+#endif // PAN_USE_CSF
+
+/*
+ * Entrypoint for draws on JM/CSF Mali. Depending on generation, this requires
+ * emitting jobs for indirect drawing, transform feedback, vertex shading, and
+ * tiling.
+ */
+static void
+panfrost_direct_draw(struct panfrost_batch *batch,
+                     const struct pipe_draw_info *info, unsigned drawid_offset,
+                     const struct pipe_draw_start_count_bias *draw)
+{
+   if (!draw->count || !info->instance_count)
+      return;
+
+   struct panfrost_context *ctx = batch->ctx;
+
+   panfrost_update_point_sprite_shader(ctx, info);
+
+   /* Take into account a negative bias */
+   ctx->vertex_count =
+      draw->count + (info->index_size ? abs(draw->index_bias) : 0);
+   ctx->instance_count = info->instance_count;
+   ctx->base_vertex = info->index_size ? draw->index_bias : 0;
+   ctx->base_instance = info->start_instance;
+   ctx->active_prim = info->mode;
+   ctx->drawid = drawid_offset;
+
+   struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
+   bool idvs = vs->info.vs.idvs;
+   mali_ptr indices = 0;
+   unsigned vertex_count =
+      panfrost_draw_get_vertex_count(batch, info, draw, &indices, idvs);
+
+   panfrost_statistics_record(ctx, info, draw);
+
+   panfrost_update_state_3d(batch);
+   panfrost_update_shader_state(batch, PIPE_SHADER_VERTEX);
+   panfrost_update_shader_state(batch, PIPE_SHADER_FRAGMENT);
+   panfrost_clean_state_3d(ctx);
+
+   JOBX(emit_draw)(batch, info, drawid_offset, draw, indices, vertex_count);
 }
 
 #if PAN_USE_CSF
