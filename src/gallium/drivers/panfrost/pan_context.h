@@ -236,6 +236,8 @@ struct panfrost_context {
       uint32_t handle;
       struct panfrost_bo *desc_bo;
    } heap;
+
+   struct panfrost_bo *tmp_geom_bo;
 };
 
 /* Corresponds to the CSO */

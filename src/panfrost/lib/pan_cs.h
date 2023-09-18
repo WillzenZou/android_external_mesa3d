@@ -171,7 +171,8 @@ void GENX(pan_emit_tiler_heap)(const struct panfrost_device *dev, void *out);
 void GENX(pan_emit_tiler_ctx)(const struct panfrost_device *dev,
                               unsigned fb_width, unsigned fb_height,
                               unsigned nr_samples, bool first_provoking_vertex,
-                              mali_ptr heap, mali_ptr geom_buf, void *out);
+                              mali_ptr heap, mali_ptr tmp_geom_buf,
+                              size_t tmp_geom_buf_size, void *out);
 #endif
 
 #if PAN_ARCH <= 9

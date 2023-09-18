@@ -944,7 +944,8 @@ void
 GENX(pan_emit_tiler_ctx)(const struct panfrost_device *dev, unsigned fb_width,
                          unsigned fb_height, unsigned nr_samples,
                          bool first_provoking_vertex, mali_ptr heap,
-                         mali_ptr geom_buf, void *out)
+                         mali_ptr tmp_geom_buf, size_t tmp_geom_buf_size,
+                         void *out)
 {
    unsigned max_levels = dev->tiler_features.max_levels;
    assert(max_levels >= 2);
@@ -969,13 +970,9 @@ GENX(pan_emit_tiler_ctx)(const struct panfrost_device *dev, unsigned fb_width,
       tiler.first_provoking_vertex = first_provoking_vertex;
 #endif
 #if PAN_ARCH >= 10
-      /* Temporary geometry buffer is placed just before the HEAP
-       * descriptor and is 64KB large.
-       *
-       * Note: DDK assigns this pointer in the CS.
-       */
-#define POSITION_FIFO_SIZE (64 * 1024)
-      tiler.geometry_buffer = geom_buf;
+      /* Note: DDK assigns this pointer in the CS. */
+      tiler.geometry_buffer = tmp_geom_buf;
+      tiler.geometry_buffer_size = tmp_geom_buf_size;
 #endif
    }
 }
