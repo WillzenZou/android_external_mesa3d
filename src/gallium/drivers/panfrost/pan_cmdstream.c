@@ -3059,13 +3059,12 @@ jm_emit_tiler_heap(struct panfrost_batch *batch)
 }
 #endif
 
-#define POSITION_FIFO_SIZE (64 * 1024)
-
 static mali_ptr
 panfrost_batch_get_bifrost_tiler(struct panfrost_batch *batch,
                                  unsigned vertex_count)
 {
-   struct panfrost_device *dev = pan_device(batch->ctx->base.screen);
+   struct panfrost_context *ctx = batch->ctx;
+   struct panfrost_device *dev = pan_device(ctx->base.screen);
 
    if (!vertex_count)
       return 0;
@@ -3073,19 +3072,24 @@ panfrost_batch_get_bifrost_tiler(struct panfrost_batch *batch,
    if (batch->tiler_ctx.bifrost.ctx)
       return batch->tiler_ctx.bifrost.ctx;
 
-   struct panfrost_ptr t = pan_pool_alloc_aligned(
-      &batch->pool.base, POSITION_FIFO_SIZE, POSITION_FIFO_SIZE);
+   mali_ptr heap, tmp_geom_buf = 0;
+   u32 tmp_geom_buf_size = 0;
 
-   mali_ptr heap, geom_buf = t.gpu;
+   if (ctx->tmp_geom_bo) {
+      tmp_geom_buf = ctx->tmp_geom_bo->ptr.gpu;
+      tmp_geom_buf_size = ctx->tmp_geom_bo->kmod_bo->size;
+   }
 
    heap = JOBX(emit_tiler_heap)(batch);
    batch->tiler_ctx.bifrost.heap = heap;
 
-   t = pan_pool_alloc_desc(&batch->pool.base, TILER_CONTEXT);
+   struct panfrost_ptr t =
+      pan_pool_alloc_desc(&batch->pool.base, TILER_CONTEXT);
    GENX(pan_emit_tiler_ctx)
    (dev, batch->key.width, batch->key.height,
     util_framebuffer_get_num_samples(&batch->key),
-    pan_tristate_get(batch->first_provoking_vertex), heap, geom_buf, t.cpu);
+    pan_tristate_get(batch->first_provoking_vertex), heap, tmp_geom_buf,
+    tmp_geom_buf_size, t.cpu);
 
    batch->tiler_ctx.bifrost.ctx = t.gpu;
    return batch->tiler_ctx.bifrost.ctx;
@@ -5056,6 +5060,9 @@ panfrost_sampler_view_destroy(struct pipe_context *pctx,
 }
 
 #if PAN_USE_CSF
+
+#define POSITION_FIFO_SIZE (64 * 1024)
+
 static void
 csf_init_context(struct panfrost_context *ctx)
 {
@@ -5107,6 +5114,10 @@ csf_init_context(struct panfrost_context *ctx)
       heap.bottom = heap.base + 64;
       heap.top = heap.base + heap.size;
    }
+
+   ctx->tmp_geom_bo = panfrost_bo_create(
+      dev, POSITION_FIFO_SIZE, PAN_BO_INVISIBLE, "Temporary Geometry buffer");
+   assert(ctx->tmp_geom_bo);
 
    struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
 
