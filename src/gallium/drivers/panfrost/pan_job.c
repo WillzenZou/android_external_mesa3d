@@ -1024,13 +1024,12 @@ panfrost_batch_submit(struct panfrost_context *ctx,
    struct pipe_screen *pscreen = ctx->base.screen;
    struct panfrost_screen *screen = pan_screen(pscreen);
    struct panfrost_device *dev = &screen->dev;
+   bool has_frag = panfrost_has_fragment_job(batch);
    int ret;
 
    /* Nothing to do! */
-   if (!batch->clear && !batch->draws && !batch->any_compute)
+   if (!has_frag && !batch->any_compute)
       goto out;
-
-   bool has_frag = panfrost_has_fragment_job(batch);
 
    if (batch->key.zsbuf && has_frag) {
       struct pipe_surface *surf = batch->key.zsbuf;
