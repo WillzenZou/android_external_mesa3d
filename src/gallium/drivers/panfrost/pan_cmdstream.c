@@ -3762,33 +3762,14 @@ panfrost_update_point_sprite_shader(struct panfrost_context *ctx,
 }
 
 #if PAN_USE_CSF
-/*
- * Launch grid is the compute equivalent of draw_vbo. Set up the registers for a
- * compute kernel and emit the run_compute command.
- */
 static void
-panfrost_launch_grid(struct pipe_context *pipe,
-                     const struct pipe_grid_info *info)
+csf_launch_grid(struct panfrost_batch *batch, const struct pipe_grid_info *info)
 {
-   struct panfrost_context *ctx = pan_context(pipe);
-
-   /* XXX - shouldn't be necessary with working memory barriers. Affected
-    * test: KHR-GLES31.core.compute_shader.pipeline-post-xfb */
-   panfrost_flush_all_batches(ctx, "Launch grid pre-barrier");
-
-   struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
-
-   ctx->compute_grid = info;
-
-   /* Conservatively assume workgroup size changes every launch */
-   ctx->dirty |= PAN_DIRTY_PARAMS;
-
-   panfrost_update_shader_state(batch, PIPE_SHADER_COMPUTE);
-
    /* Empty compute programs are invalid and don't make sense */
    if (batch->rsd[PIPE_SHADER_COMPUTE] == 0)
       return;
 
+   struct panfrost_context *ctx = batch->ctx;
    struct panfrost_compiled_shader *cs = ctx->prog[PIPE_SHADER_COMPUTE];
    ceu_builder *b = batch->ceu_builder;
 
@@ -3862,10 +3843,147 @@ panfrost_launch_grid(struct pipe_context *pipe,
     */
    ceu_run_compute(b, 10, MALI_TASK_AXIS_Z);
    batch->any_compute = true;
+}
+#else // PAN_USE_CSF
+static void
+jm_launch_grid(struct panfrost_batch *batch, const struct pipe_grid_info *info)
+{
+   struct panfrost_ptr t = pan_pool_alloc_desc(&batch->pool.base, COMPUTE_JOB);
+
+   /* Invoke according to the grid info */
+
+   unsigned num_wg[3] = {info->grid[0], info->grid[1], info->grid[2]};
+
+   if (info->indirect)
+      num_wg[0] = num_wg[1] = num_wg[2] = 1;
+
+#if PAN_ARCH <= 7
+   panfrost_pack_work_groups_compute(
+      pan_section_ptr(t.cpu, COMPUTE_JOB, INVOCATION), num_wg[0], num_wg[1],
+      num_wg[2], info->block[0], info->block[1], info->block[2], false,
+      info->indirect != NULL);
+
+   pan_section_pack(t.cpu, COMPUTE_JOB, PARAMETERS, cfg) {
+      cfg.job_task_split = util_logbase2_ceil(info->block[0] + 1) +
+                           util_logbase2_ceil(info->block[1] + 1) +
+                           util_logbase2_ceil(info->block[2] + 1);
+   }
+
+   pan_section_pack(t.cpu, COMPUTE_JOB, DRAW, cfg) {
+      cfg.state = batch->rsd[PIPE_SHADER_COMPUTE];
+      cfg.attributes = panfrost_emit_image_attribs(
+         batch, &cfg.attribute_buffers, PIPE_SHADER_COMPUTE);
+      cfg.thread_storage = panfrost_emit_shared_memory(batch, info);
+      cfg.uniform_buffers = batch->uniform_buffers[PIPE_SHADER_COMPUTE];
+      cfg.push_uniforms = batch->push_uniforms[PIPE_SHADER_COMPUTE];
+      cfg.textures = batch->textures[PIPE_SHADER_COMPUTE];
+      cfg.samplers = batch->samplers[PIPE_SHADER_COMPUTE];
+   }
+#else
+   struct panfrost_context *ctx = batch->ctx;
+   struct panfrost_compiled_shader *cs = ctx->prog[PIPE_SHADER_COMPUTE];
+
+   pan_section_pack(t.cpu, COMPUTE_JOB, PAYLOAD, cfg) {
+      cfg.workgroup_size_x = info->block[0];
+      cfg.workgroup_size_y = info->block[1];
+      cfg.workgroup_size_z = info->block[2];
+
+      cfg.workgroup_count_x = num_wg[0];
+      cfg.workgroup_count_y = num_wg[1];
+      cfg.workgroup_count_z = num_wg[2];
+
+      panfrost_emit_shader(batch, &cfg.compute, PIPE_SHADER_COMPUTE,
+                           batch->rsd[PIPE_SHADER_COMPUTE],
+                           panfrost_emit_shared_memory(batch, info));
+
+      /* Workgroups may be merged if the shader does not use barriers
+       * or shared memory. This condition is checked against the
+       * static shared_size at compile-time. We need to check the
+       * variable shared size at launch_grid time, because the
+       * compiler doesn't know about that.
+       */
+      cfg.allow_merging_workgroups = cs->info.cs.allow_merging_workgroups &&
+                                     (info->variable_shared_mem == 0);
+
+      cfg.task_increment = 1;
+      cfg.task_axis = MALI_TASK_AXIS_Z;
+   }
+#endif
+
+   unsigned indirect_dep = 0;
+#if PAN_GPU_INDIRECTS
+   if (info->indirect) {
+      struct pan_indirect_dispatch_info indirect = {
+         .job = t.gpu,
+         .indirect_dim = pan_resource(info->indirect)->image.data.bo->ptr.gpu +
+                         info->indirect_offset,
+         .num_wg_sysval =
+            {
+               batch->num_wg_sysval[0],
+               batch->num_wg_sysval[1],
+               batch->num_wg_sysval[2],
+            },
+      };
+
+      indirect_dep = GENX(pan_indirect_dispatch_emit)(
+         &batch->pool.base, &batch->scoreboard, &indirect);
+   }
+#endif
+
+   panfrost_add_job(&batch->pool.base, &batch->scoreboard,
+                    MALI_JOB_TYPE_COMPUTE, true, false, indirect_dep, 0, &t,
+                    false);
+   batch->any_compute = true;
+}
+#endif // PAN_USE_CSF
+
+/*
+ * Launch grid is the compute equivalent of draw_vbo. Set up the registers for a
+ * compute kernel and emit the run_compute command.
+ */
+static void
+panfrost_launch_grid(struct pipe_context *pipe,
+                     const struct pipe_grid_info *info)
+{
+   struct panfrost_context *ctx = pan_context(pipe);
+
+   /* XXX - shouldn't be necessary with working memory barriers. Affected
+    * test: KHR-GLES31.core.compute_shader.pipeline-post-xfb */
+   panfrost_flush_all_batches(ctx, "Launch grid pre-barrier");
+
+   struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
+
+   if (info->indirect && !PAN_GPU_INDIRECTS) {
+      struct pipe_transfer *transfer;
+      uint32_t *params =
+         pipe_buffer_map_range(pipe, info->indirect, info->indirect_offset,
+                               3 * sizeof(uint32_t), PIPE_MAP_READ, &transfer);
+
+      struct pipe_grid_info direct = *info;
+      direct.indirect = NULL;
+      direct.grid[0] = params[0];
+      direct.grid[1] = params[1];
+      direct.grid[2] = params[2];
+      pipe_buffer_unmap(pipe, transfer);
+
+      if (params[0] && params[1] && params[2])
+         panfrost_launch_grid(pipe, &direct);
+
+      return;
+   }
+
+   ctx->compute_grid = info;
+
+   /* Conservatively assume workgroup size changes every launch */
+   ctx->dirty |= PAN_DIRTY_PARAMS;
+
+   panfrost_update_shader_state(batch, PIPE_SHADER_COMPUTE);
+
+   JOBX(launch_grid)(batch, info);
 
    panfrost_flush_all_batches(ctx, "Launch grid post-barrier");
 }
-#endif
+
 /*
  * Entrypoint for draws on JM/CSF Mali. Depending on generation, this requires
  * emitting jobs for indirect drawing, transform feedback, vertex shading, and
@@ -4247,138 +4365,6 @@ panfrost_direct_draw(struct panfrost_batch *batch,
                 secondary_shader);
 #endif
 }
-
-#if !PAN_USE_CSF
-/*
- * Launch grid is the compute equivalent of draw_vbo, so in this routine, we
- * construct the COMPUTE job and add it to the job chain.
- */
-static void
-panfrost_launch_grid(struct pipe_context *pipe,
-                     const struct pipe_grid_info *info)
-{
-   struct panfrost_context *ctx = pan_context(pipe);
-
-   /* XXX - shouldn't be necessary with working memory barriers. Affected
-    * test: KHR-GLES31.core.compute_shader.pipeline-post-xfb */
-   panfrost_flush_all_batches(ctx, "Launch grid pre-barrier");
-
-   struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
-
-   if (info->indirect && !PAN_GPU_INDIRECTS) {
-      struct pipe_transfer *transfer;
-      uint32_t *params =
-         pipe_buffer_map_range(pipe, info->indirect, info->indirect_offset,
-                               3 * sizeof(uint32_t), PIPE_MAP_READ, &transfer);
-
-      struct pipe_grid_info direct = *info;
-      direct.indirect = NULL;
-      direct.grid[0] = params[0];
-      direct.grid[1] = params[1];
-      direct.grid[2] = params[2];
-      pipe_buffer_unmap(pipe, transfer);
-
-      if (params[0] && params[1] && params[2])
-         panfrost_launch_grid(pipe, &direct);
-
-      return;
-   }
-
-   ctx->compute_grid = info;
-
-   struct panfrost_ptr t = pan_pool_alloc_desc(&batch->pool.base, COMPUTE_JOB);
-
-   /* Invoke according to the grid info */
-
-   unsigned num_wg[3] = {info->grid[0], info->grid[1], info->grid[2]};
-
-   if (info->indirect)
-      num_wg[0] = num_wg[1] = num_wg[2] = 1;
-
-   /* Conservatively assume workgroup size changes every launch */
-   ctx->dirty |= PAN_DIRTY_PARAMS;
-
-   panfrost_update_shader_state(batch, PIPE_SHADER_COMPUTE);
-
-#if PAN_ARCH <= 7
-   panfrost_pack_work_groups_compute(
-      pan_section_ptr(t.cpu, COMPUTE_JOB, INVOCATION), num_wg[0], num_wg[1],
-      num_wg[2], info->block[0], info->block[1], info->block[2], false,
-      info->indirect != NULL);
-
-   pan_section_pack(t.cpu, COMPUTE_JOB, PARAMETERS, cfg) {
-      cfg.job_task_split = util_logbase2_ceil(info->block[0] + 1) +
-                           util_logbase2_ceil(info->block[1] + 1) +
-                           util_logbase2_ceil(info->block[2] + 1);
-   }
-
-   pan_section_pack(t.cpu, COMPUTE_JOB, DRAW, cfg) {
-      cfg.state = batch->rsd[PIPE_SHADER_COMPUTE];
-      cfg.attributes = panfrost_emit_image_attribs(
-         batch, &cfg.attribute_buffers, PIPE_SHADER_COMPUTE);
-      cfg.thread_storage = panfrost_emit_shared_memory(batch, info);
-      cfg.uniform_buffers = batch->uniform_buffers[PIPE_SHADER_COMPUTE];
-      cfg.push_uniforms = batch->push_uniforms[PIPE_SHADER_COMPUTE];
-      cfg.textures = batch->textures[PIPE_SHADER_COMPUTE];
-      cfg.samplers = batch->samplers[PIPE_SHADER_COMPUTE];
-   }
-#else
-   struct panfrost_compiled_shader *cs = ctx->prog[PIPE_SHADER_COMPUTE];
-
-   pan_section_pack(t.cpu, COMPUTE_JOB, PAYLOAD, cfg) {
-      cfg.workgroup_size_x = info->block[0];
-      cfg.workgroup_size_y = info->block[1];
-      cfg.workgroup_size_z = info->block[2];
-
-      cfg.workgroup_count_x = num_wg[0];
-      cfg.workgroup_count_y = num_wg[1];
-      cfg.workgroup_count_z = num_wg[2];
-
-      panfrost_emit_shader(batch, &cfg.compute, PIPE_SHADER_COMPUTE,
-                           batch->rsd[PIPE_SHADER_COMPUTE],
-                           panfrost_emit_shared_memory(batch, info));
-
-      /* Workgroups may be merged if the shader does not use barriers
-       * or shared memory. This condition is checked against the
-       * static shared_size at compile-time. We need to check the
-       * variable shared size at launch_grid time, because the
-       * compiler doesn't know about that.
-       */
-      cfg.allow_merging_workgroups = cs->info.cs.allow_merging_workgroups &&
-                                     (info->variable_shared_mem == 0);
-
-      cfg.task_increment = 1;
-      cfg.task_axis = MALI_TASK_AXIS_Z;
-   }
-#endif
-
-   unsigned indirect_dep = 0;
-#if PAN_GPU_INDIRECTS
-   if (info->indirect) {
-      struct pan_indirect_dispatch_info indirect = {
-         .job = t.gpu,
-         .indirect_dim = pan_resource(info->indirect)->image.data.bo->ptr.gpu +
-                         info->indirect_offset,
-         .num_wg_sysval =
-            {
-               batch->num_wg_sysval[0],
-               batch->num_wg_sysval[1],
-               batch->num_wg_sysval[2],
-            },
-      };
-
-      indirect_dep = GENX(pan_indirect_dispatch_emit)(
-         &batch->pool.base, &batch->scoreboard, &indirect);
-   }
-#endif
-
-   panfrost_add_job(&batch->pool.base, &batch->scoreboard,
-                    MALI_JOB_TYPE_COMPUTE, true, false, indirect_dep, 0, &t,
-                    false);
-   batch->any_compute = true;
-   panfrost_flush_all_batches(ctx, "Launch grid post-barrier");
-}
-#endif
 
 #if PAN_USE_CSF
 static inline void
