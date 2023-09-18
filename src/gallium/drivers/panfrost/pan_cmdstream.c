@@ -3550,8 +3550,9 @@ panfrost_draw_emit_tiler(struct panfrost_batch *batch,
 #if !PAN_USE_CSF
 
 static void
-launch_xfb_jm(struct panfrost_batch *batch, const struct pipe_draw_info *info,
-              mali_ptr attribs, mali_ptr attrib_bufs, unsigned count)
+jm_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
+              mali_ptr attribs, mali_ptr attrib_bufs, UNUSED unsigned start,
+              unsigned count)
 {
    batch->uniform_buffers[PIPE_SHADER_VERTEX] =
       panfrost_emit_const_buf(batch, PIPE_SHADER_VERTEX, NULL,
@@ -3605,7 +3606,8 @@ launch_xfb_jm(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 #else // PAN_USE_CSF
 
 static void
-launch_xfb_csf(struct panfrost_batch *batch, const struct pipe_draw_info *info,
+csf_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
+               UNUSED mali_ptr attribs, UNUSED mali_ptr attrib_bufs,
                unsigned start, unsigned count)
 {
    ceu_builder *b = batch->ceu_builder;
@@ -3688,11 +3690,7 @@ panfrost_launch_xfb(struct panfrost_batch *batch,
    batch->rsd[PIPE_SHADER_VERTEX] =
       panfrost_emit_compute_shader_meta(batch, PIPE_SHADER_VERTEX);
 
-#if !PAN_USE_CSF
-   launch_xfb_jm(batch, info, attribs, attrib_bufs, count);
-#else
-   launch_xfb_csf(batch, info, start, count);
-#endif
+   JOBX(launch_xfb)(batch, info, attribs, attrib_bufs, start, count);
 
    ctx->uncompiled[PIPE_SHADER_VERTEX] = vs_uncompiled;
    ctx->prog[PIPE_SHADER_VERTEX] = vs;
