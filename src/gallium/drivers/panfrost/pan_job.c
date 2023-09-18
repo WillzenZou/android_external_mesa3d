@@ -966,7 +966,7 @@ panfrost_batch_submit_cs_ioctl(struct panfrost_batch *batch, mali_ptr cs_start,
       drmSyncobjWait(panfrost_device_fd(dev), &out_sync, 1, INT64_MAX, 0, NULL);
 
       if ((dev->debug & PAN_DBG_TRACE) && dev->arch >= 10) {
-         uint32_t regs[256] = {};
+         uint32_t regs[256] = {0};
          pandecode_cs(dev->decode_ctx, qsubmits[0].stream_addr,
                       qsubmits[0].stream_size, panfrost_device_gpu_id(dev),
                       regs);
