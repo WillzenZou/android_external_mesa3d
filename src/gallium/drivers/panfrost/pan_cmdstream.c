@@ -2674,6 +2674,60 @@ jm_emit_batch_end(struct panfrost_batch *batch)
 }
 #endif
 
+#if PAN_USE_CSF
+static mali_ptr
+csf_emit_fragment_job(struct panfrost_batch *batch,
+                      const struct pan_fb_info *pfb)
+{
+   ceu_builder *b = batch->ceu_builder;
+
+   if (batch->draw_count > 0) {
+      /* Finish tiling and wait for IDVS and tiling */
+      ceu_finish_tiling(b);
+      ceu_wait_slot(b, 2);
+      ceu_vt_end(b);
+   }
+
+   /* Set up the fragment job */
+   ceu_move64_to(b, ceu_reg64(b, 40), batch->framebuffer.gpu);
+   ceu_move32_to(b, ceu_reg32(b, 42), (batch->miny << 16) | batch->minx);
+   ceu_move32_to(b, ceu_reg32(b, 43),
+                 ((batch->maxy - 1) << 16) | (batch->maxx - 1));
+
+   /* Run the fragment job and wait */
+   ceu_run_fragment(b, false);
+   ceu_wait_slot(b, 2);
+
+   /* Gather freed heap chunks and add them to the heap context free list
+    * so they can be re-used next time the tiler heap runs out of chunks.
+    * That's what ceu_finish_fragment() is all about. The list of freed
+    * chunks is in the tiler context descriptor
+    * (completed_{top,bottom fields}). */
+   if (batch->tiler_ctx.bifrost.ctx) {
+      ceu_move64_to(b, ceu_reg64(b, 94), batch->tiler_ctx.bifrost.ctx);
+      ceu_load_to(b, ceu_reg_tuple(b, 90, 4), ceu_reg64(b, 94),
+                  BITFIELD_MASK(4), 40);
+      ceu_wait_slot(b, 0);
+      ceu_finish_fragment(b, true, ceu_reg64(b, 90), ceu_reg64(b, 92), 0x0, 1);
+      ceu_wait_slot(b, 1);
+   }
+
+   return 0;
+}
+#else
+static mali_ptr
+jm_emit_fragment_job(struct panfrost_batch *batch,
+                     const struct pan_fb_info *pfb)
+{
+   struct panfrost_ptr transfer =
+      pan_pool_alloc_desc(&batch->pool.base, FRAGMENT_JOB);
+
+   GENX(pan_emit_fragment_job)(pfb, batch->framebuffer.gpu, transfer.cpu);
+
+   return transfer.gpu;
+}
+#endif
+
 /* Generate a fragment job. This should be called once per frame. (Usually,
  * this corresponds to eglSwapBuffers or one of glFlush, glFinish)
  */
@@ -2710,49 +2764,7 @@ emit_fragment_job(struct panfrost_batch *batch, const struct pan_fb_info *pfb)
    assert(batch->maxx > batch->minx);
    assert(batch->maxy > batch->miny);
 
-#if PAN_USE_CSF
-   ceu_builder *b = batch->ceu_builder;
-
-   if (batch->draw_count > 0) {
-      /* Finish tiling and wait for IDVS and tiling */
-      ceu_finish_tiling(b);
-      ceu_wait_slot(b, 2);
-      ceu_vt_end(b);
-   }
-
-   /* Set up the fragment job */
-   ceu_move64_to(b, ceu_reg64(b, 40), batch->framebuffer.gpu);
-   ceu_move32_to(b, ceu_reg32(b, 42), (batch->miny << 16) | batch->minx);
-   ceu_move32_to(b, ceu_reg32(b, 43),
-                 ((batch->maxy - 1) << 16) | (batch->maxx - 1));
-
-   /* Run the fragment job and wait */
-   ceu_run_fragment(b, false);
-   ceu_wait_slot(b, 2);
-
-   /* Gather freed heap chunks and add them to the heap context free list
-    * so they can be re-used next time the tiler heap runs out of chunks.
-    * That's what ceu_finish_fragment() is all about. The list of freed
-    * chunks is in the tiler context descriptor
-    * (completed_{top,bottom fields}). */
-   if (batch->tiler_ctx.bifrost.ctx) {
-      ceu_move64_to(b, ceu_reg64(b, 94), batch->tiler_ctx.bifrost.ctx);
-      ceu_load_to(b, ceu_reg_tuple(b, 90, 4), ceu_reg64(b, 94),
-                  BITFIELD_MASK(4), 40);
-      ceu_wait_slot(b, 0);
-      ceu_finish_fragment(b, true, ceu_reg64(b, 90), ceu_reg64(b, 92), 0x0, 1);
-      ceu_wait_slot(b, 1);
-   }
-
-   return 0;
-#else
-   struct panfrost_ptr transfer =
-      pan_pool_alloc_desc(&batch->pool.base, FRAGMENT_JOB);
-
-   GENX(pan_emit_fragment_job)(pfb, batch->framebuffer.gpu, transfer.cpu);
-
-   return transfer.gpu;
-#endif
+   return JOBX(emit_fragment_job)(batch, pfb);
 }
 
 #define DEFINE_CASE(c)                                                         \
