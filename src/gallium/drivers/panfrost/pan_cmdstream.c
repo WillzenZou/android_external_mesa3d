@@ -2679,7 +2679,7 @@ panfrost_emit_batch_end(struct panfrost_batch *batch)
 static mali_ptr
 emit_fragment_job(struct panfrost_batch *batch, const struct pan_fb_info *pfb)
 {
-   if (PAN_ARCH >= 10 && !batch->clear && !batch->draws) {
+   if (PAN_ARCH >= 10 && !batch->clear && !batch->draw_count) {
       /* Compute only batch */
       panfrost_emit_batch_end(batch);
       return 0;
@@ -2718,7 +2718,7 @@ emit_fragment_job(struct panfrost_batch *batch, const struct pan_fb_info *pfb)
 #if PAN_ARCH >= 10
    ceu_builder *b = batch->ceu_builder;
 
-   if (batch->draws) {
+   if (batch->draw_count > 0) {
       /* Finish tiling and wait for IDVS and tiling */
       ceu_finish_tiling(b);
       ceu_wait_slot(b, 2);
@@ -4029,7 +4029,7 @@ panfrost_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
       assert(succ && "must be able to set state for a fresh batch");
    }
 
-   if (batch->draws == 0)
+   if (batch->draw_count == 0)
       ceu_vt_start(batch->ceu_builder);
 
    /* panfrost_batch_skip_rasterization reads
