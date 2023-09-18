@@ -3229,8 +3229,8 @@ panfrost_emit_shader(struct panfrost_batch *batch,
 
 #if PAN_USE_CSF
 static void
-panfrost_emit_shader_regs(struct panfrost_batch *batch,
-                          enum pipe_shader_type stage, mali_ptr shader)
+csf_emit_shader_regs(struct panfrost_batch *batch, enum pipe_shader_type stage,
+                     mali_ptr shader)
 {
    mali_ptr resources = panfrost_emit_resources(batch, stage);
 
@@ -3641,8 +3641,8 @@ launch_xfb_csf(struct panfrost_batch *batch, const struct pipe_draw_info *info,
    ceu_move32_to(b, ceu_reg32(b, 38), info->instance_count);
    ceu_move32_to(b, ceu_reg32(b, 39), 1);
 
-   panfrost_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
-                             batch->rsd[PIPE_SHADER_VERTEX]);
+   csf_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
+                        batch->rsd[PIPE_SHADER_VERTEX]);
    /* XXX: Choose correctly */
    ceu_run_compute(b, 10, MALI_TASK_AXIS_Z);
    batch->any_compute = true;
@@ -3799,8 +3799,8 @@ panfrost_launch_grid(struct pipe_context *pipe,
    struct panfrost_compiled_shader *cs = ctx->prog[PIPE_SHADER_COMPUTE];
    ceu_builder *b = batch->ceu_builder;
 
-   panfrost_emit_shader_regs(batch, PIPE_SHADER_COMPUTE,
-                             batch->rsd[PIPE_SHADER_COMPUTE]);
+   csf_emit_shader_regs(batch, PIPE_SHADER_COMPUTE,
+                        batch->rsd[PIPE_SHADER_COMPUTE]);
 
    ceu_move64_to(b, ceu_reg64(b, 24), panfrost_emit_shared_memory(batch, info));
 
@@ -4063,12 +4063,12 @@ panfrost_direct_draw(struct panfrost_batch *batch,
 
 #else // PAN_USE_CSF
 
-   panfrost_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
-                             panfrost_get_position_shader(batch, info));
+   csf_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
+                        panfrost_get_position_shader(batch, info));
 
    if (fs_required) {
-      panfrost_emit_shader_regs(batch, PIPE_SHADER_FRAGMENT,
-                                batch->rsd[PIPE_SHADER_FRAGMENT]);
+      csf_emit_shader_regs(batch, PIPE_SHADER_FRAGMENT,
+                           batch->rsd[PIPE_SHADER_FRAGMENT]);
    } else {
       ceu_move64_to(b, ceu_reg64(b, 4), 0);
       ceu_move64_to(b, ceu_reg64(b, 12), 0);
