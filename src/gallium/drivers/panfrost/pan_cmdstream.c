@@ -3029,6 +3029,24 @@ panfrost_update_state_3d(struct panfrost_batch *batch)
 
 #if PAN_ARCH >= 6
 
+#if PAN_USE_CSF
+static mali_ptr
+csf_emit_tiler_heap(struct panfrost_batch *batch)
+{
+   return batch->ctx->heap.desc_bo->ptr.gpu;
+}
+#else
+static mali_ptr
+jm_emit_tiler_heap(struct panfrost_batch *batch)
+{
+   struct panfrost_device *dev = pan_device(batch->ctx->base.screen);
+   struct panfrost_ptr t = pan_pool_alloc_desc(&batch->pool.base, TILER_HEAP);
+
+   GENX(pan_emit_tiler_heap)(dev, (uint8_t *)t.cpu);
+   return t.gpu;
+}
+#endif
+
 #define POSITION_FIFO_SIZE (64 * 1024)
 
 static mali_ptr
@@ -3048,14 +3066,7 @@ panfrost_batch_get_bifrost_tiler(struct panfrost_batch *batch,
 
    mali_ptr heap, geom_buf = t.gpu;
 
-#if PAN_USE_CSF
-   heap = batch->ctx->heap.desc_bo->ptr.gpu;
-#else
-   t = pan_pool_alloc_desc(&batch->pool.base, TILER_HEAP);
-   GENX(pan_emit_tiler_heap)(dev, (uint8_t *)t.cpu);
-   heap = t.gpu;
-#endif
-
+   heap = JOBX(emit_tiler_heap)(batch);
    batch->tiler_ctx.bifrost.heap = heap;
 
    t = pan_pool_alloc_desc(&batch->pool.base, TILER_CONTEXT);
