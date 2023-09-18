@@ -9,11 +9,11 @@
 #include <string.h>
 #include <xf86drm.h>
 
-#include "util/u_debug.h"
 #include "util/hash_table.h"
 #include "util/libsync.h"
 #include "util/macros.h"
 #include "util/os_time.h"
+#include "util/u_debug.h"
 #include "util/vma.h"
 
 #include "drm-uapi/dma-buf.h"
@@ -405,7 +405,8 @@ panthor_kmod_bo_get_sync_point(struct pan_kmod_bo *bo, uint32_t *sync_handle,
       close(dmabuf_fd);
       if (ret) {
          debug_printf("drmIoctl(..., DMA_BUF_IOCTL_EXPORT_SYNC_FILE, ...) "
-                      "failed: %d\n", ret);
+                      "failed: %d\n",
+                      ret);
          return -1;
       }
 
