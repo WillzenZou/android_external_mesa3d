@@ -4949,8 +4949,34 @@ preload(struct panfrost_batch *batch, struct pan_fb_info *fb)
     batch->tls.gpu, PAN_ARCH >= 6 ? batch->tiler_ctx.bifrost.ctx : 0, NULL);
 }
 
+#if PAN_USE_CSF
 static void
-init_batch(struct panfrost_batch *batch)
+csf_init_batch(struct panfrost_batch *batch)
+{
+   /* Allocate and bind the command queue */
+   struct ceu_queue queue = ceu_alloc_queue(batch);
+
+   /* Setup the queue builder */
+   batch->ceu_builder = malloc(sizeof(ceu_builder));
+   ceu_builder_init(batch->ceu_builder, 96, batch, queue);
+   ceu_require_all(batch->ceu_builder);
+
+   /* Set up entries */
+   ceu_builder *b = batch->ceu_builder;
+   ceu_set_scoreboard_entry(b, 2, 0);
+
+   /* Initialize the state vector */
+   for (unsigned i = 0; i < 64; i += 2)
+      ceu_move64_to(b, ceu_reg64(b, i), 0);
+
+   batch->framebuffer = pan_pool_alloc_desc_aggregate(
+      &batch->pool.base, PAN_DESC(FRAMEBUFFER), PAN_DESC(ZS_CRC_EXTENSION),
+      PAN_DESC_ARRAY(MAX2(batch->key.nr_cbufs, 1), RENDER_TARGET));
+   batch->tls = pan_pool_alloc_desc(&batch->pool.base, LOCAL_STORAGE);
+}
+#else
+static void
+jm_init_batch(struct panfrost_batch *batch)
 {
    /* Reserve the framebuffer and local storage descriptors */
    batch->framebuffer =
@@ -4979,25 +5005,8 @@ init_batch(struct panfrost_batch *batch)
    batch->tls.gpu = ptr.opaque[0];
 #endif
 #endif
-
-#if PAN_USE_CSF
-   /* Allocate and bind the command queue */
-   struct ceu_queue queue = ceu_alloc_queue(batch);
-
-   /* Setup the queue builder */
-   batch->ceu_builder = malloc(sizeof(ceu_builder));
-   ceu_builder_init(batch->ceu_builder, 96, batch, queue);
-   ceu_require_all(batch->ceu_builder);
-
-   /* Set up entries */
-   ceu_builder *b = batch->ceu_builder;
-   ceu_set_scoreboard_entry(b, 2, 0);
-
-   /* Initialize the state vector */
-   for (unsigned i = 0; i < 64; i += 2)
-      ceu_move64_to(b, ceu_reg64(b, i), 0);
-#endif
 }
+#endif
 
 static void
 panfrost_sampler_view_destroy(struct pipe_context *pctx,
@@ -5200,7 +5209,7 @@ GENX(panfrost_cmdstream_screen_init)(struct panfrost_screen *screen)
    screen->vtbl.context_populate_vtbl = context_populate_vtbl;
    screen->vtbl.context_init = JOBX(init_context);
    screen->vtbl.context_cleanup = JOBX(cleanup_context);
-   screen->vtbl.init_batch = init_batch;
+   screen->vtbl.init_batch = JOBX(init_batch);
    screen->vtbl.get_blend_shader = GENX(pan_blend_get_shader_locked);
    screen->vtbl.init_polygon_list = init_polygon_list;
    screen->vtbl.get_compiler_options = GENX(pan_shader_get_compiler_options);
