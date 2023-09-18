@@ -4980,7 +4980,7 @@ panfrost_sampler_view_destroy(struct pipe_context *pctx,
 
 #if PAN_USE_CSF
 static void
-panfrost_csf_init_context(struct panfrost_context *ctx)
+csf_init_context(struct panfrost_context *ctx)
 {
    struct panfrost_device *dev = pan_device(ctx->base.screen);
    struct drm_panthor_queue_create qc[] = {{
@@ -5044,7 +5044,7 @@ panfrost_csf_init_context(struct panfrost_context *ctx)
 }
 
 static void
-panfrost_csf_cleanup_context(struct panfrost_context *ctx)
+csf_cleanup_context(struct panfrost_context *ctx)
 {
    struct panfrost_device *dev = pan_device(ctx->base.screen);
    struct drm_panthor_tiler_heap_destroy thd = {
@@ -5065,6 +5065,16 @@ panfrost_csf_cleanup_context(struct panfrost_context *ctx)
 
    panfrost_bo_unreference(ctx->heap.desc_bo);
 }
+#else
+static void
+jm_init_context(struct panfrost_context *ctx)
+{
+}
+
+static void
+jm_cleanup_context(struct panfrost_context *ctx)
+{
+}
 #endif
 
 static void
@@ -5082,22 +5092,6 @@ context_populate_vtbl(struct pipe_context *pipe)
    pipe->create_blend_state = panfrost_create_blend_state;
 
    pipe->get_sample_position = u_default_get_sample_position;
-}
-
-static void
-context_init(struct panfrost_context *ctx)
-{
-#if PAN_USE_CSF
-   panfrost_csf_init_context(ctx);
-#endif
-}
-
-static void
-context_cleanup(struct panfrost_context *ctx)
-{
-#if PAN_USE_CSF
-   panfrost_csf_cleanup_context(ctx);
-#endif
 }
 
 #if PAN_ARCH <= 5
@@ -5172,8 +5166,8 @@ GENX(panfrost_cmdstream_screen_init)(struct panfrost_screen *screen)
    screen->vtbl.screen_destroy = screen_destroy;
    screen->vtbl.preload = preload;
    screen->vtbl.context_populate_vtbl = context_populate_vtbl;
-   screen->vtbl.context_init = context_init;
-   screen->vtbl.context_cleanup = context_cleanup;
+   screen->vtbl.context_init = JOBX(init_context);
+   screen->vtbl.context_cleanup = JOBX(cleanup_context);
    screen->vtbl.init_batch = init_batch;
    screen->vtbl.get_blend_shader = GENX(pan_blend_get_shader_locked);
    screen->vtbl.init_polygon_list = init_polygon_list;
