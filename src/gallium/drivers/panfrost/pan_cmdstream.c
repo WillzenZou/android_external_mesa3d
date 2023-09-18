@@ -3621,7 +3621,6 @@ jm_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 #endif
    panfrost_add_job(&batch->pool.base, &batch->scoreboard, job_type, true,
                     false, 0, 0, &t, false);
-   batch->any_compute = true;
 }
 
 #else // PAN_USE_CSF
@@ -3663,7 +3662,6 @@ csf_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
                         batch->rsd[PIPE_SHADER_VERTEX]);
    /* XXX: Choose correctly */
    ceu_run_compute(b, 10, MALI_TASK_AXIS_Z);
-   batch->any_compute = true;
 
    /* Reset registers expected to be 0 for IDVS */
    ceu_move32_to(b, ceu_reg32(b, 31), 0);
@@ -3712,6 +3710,7 @@ panfrost_launch_xfb(struct panfrost_batch *batch,
       panfrost_emit_compute_shader_meta(batch, PIPE_SHADER_VERTEX);
 
    JOBX(launch_xfb)(batch, info, attribs, attrib_bufs, start, count);
+   batch->any_compute = true;
 
    ctx->uncompiled[PIPE_SHADER_VERTEX] = vs_uncompiled;
    ctx->prog[PIPE_SHADER_VERTEX] = vs;
@@ -3863,7 +3862,6 @@ csf_launch_grid(struct panfrost_batch *batch, const struct pipe_grid_info *info)
     * condition maybe? Cache badnesss?
     */
    ceu_run_compute(b, 10, MALI_TASK_AXIS_Z);
-   batch->any_compute = true;
 }
 #else // PAN_USE_CSF
 static void
@@ -3954,7 +3952,6 @@ jm_launch_grid(struct panfrost_batch *batch, const struct pipe_grid_info *info)
    panfrost_add_job(&batch->pool.base, &batch->scoreboard,
                     MALI_JOB_TYPE_COMPUTE, true, false, indirect_dep, 0, &t,
                     false);
-   batch->any_compute = true;
 }
 #endif // PAN_USE_CSF
 
@@ -4001,6 +3998,7 @@ panfrost_launch_grid(struct pipe_context *pipe,
    panfrost_update_shader_state(batch, PIPE_SHADER_COMPUTE);
 
    JOBX(launch_grid)(batch, info);
+   batch->any_compute = true;
 
    panfrost_flush_all_batches(ctx, "Launch grid post-barrier");
 }
