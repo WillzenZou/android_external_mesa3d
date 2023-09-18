@@ -181,10 +181,7 @@ panfrost_kmod_bo_import(struct pan_kmod_dev *dev, int fd)
    if (ret)
       goto err_free_bo;
 
-   struct drm_panfrost_get_bo_offset get_bo_offset = {
-      .handle = handle,
-      0
-   };
+   struct drm_panfrost_get_bo_offset get_bo_offset = {.handle = handle, 0};
    ret = drmIoctl(dev->fd, DRM_IOCTL_PANFROST_GET_BO_OFFSET, &get_bo_offset);
    if (ret)
       goto err_close_handle;
@@ -225,9 +222,7 @@ panfrost_kmod_bo_export(struct pan_kmod_bo *bo)
 static off_t
 panfrost_kmod_bo_get_mmap_offset(struct pan_kmod_bo *bo)
 {
-   struct drm_panfrost_mmap_bo mmap_bo = {
-      .handle = bo->handle
-   };
+   struct drm_panfrost_mmap_bo mmap_bo = {.handle = bo->handle};
    int ret = drmIoctl(bo->dev->fd, DRM_IOCTL_PANFROST_MMAP_BO, &mmap_bo);
    if (ret) {
       fprintf(stderr, "DRM_IOCTL_PANFROST_MMAP_BO failed: %m\n");
