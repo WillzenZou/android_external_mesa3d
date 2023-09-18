@@ -4370,13 +4370,18 @@ panfrost_launch_grid(struct pipe_context *pipe,
 }
 #endif
 
-static inline void
-panfrost_start_tiling(struct panfrost_batch *batch)
-{
 #if PAN_USE_CSF
+static inline void
+csf_prepare_first_draw(struct panfrost_batch *batch)
+{
    ceu_vt_start(batch->ceu_builder);
-#endif
 }
+#else
+static inline void
+jm_prepare_first_draw(struct panfrost_batch *batch)
+{
+}
+#endif
 
 static void
 panfrost_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
@@ -4420,7 +4425,7 @@ panfrost_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
    }
 
    if (batch->draw_count == 0)
-      panfrost_start_tiling(batch);
+      JOBX(prepare_first_draw)(batch);
 
    /* panfrost_batch_skip_rasterization reads
     * batch->scissor_culls_everything, which is set by
