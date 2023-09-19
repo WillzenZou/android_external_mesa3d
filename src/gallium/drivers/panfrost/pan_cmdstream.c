@@ -3631,6 +3631,7 @@ panfrost_launch_xfb(struct panfrost_batch *batch,
 #endif
    panfrost_add_job(&batch->pool.base, &batch->scoreboard, job_type, true,
                     false, 0, 0, &t, false);
+   batch->any_compute = true;
 
    ctx->uncompiled[PIPE_SHADER_VERTEX] = vs_uncompiled;
    ctx->prog[PIPE_SHADER_VERTEX] = vs;
@@ -3808,6 +3809,7 @@ panfrost_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
                                 batch->rsd[PIPE_SHADER_VERTEX]);
       /* XXX: Choose correctly */
       ceu_run_compute(b, 10, MALI_TASK_AXIS_Z);
+      batch->any_compute = true;
 
       ctx->uncompiled[PIPE_SHADER_VERTEX] = vs_uncompiled;
       ctx->prog[PIPE_SHADER_VERTEX] = vs;
@@ -4543,6 +4545,7 @@ panfrost_launch_grid(struct pipe_context *pipe,
    panfrost_add_job(&batch->pool.base, &batch->scoreboard,
                     MALI_JOB_TYPE_COMPUTE, true, false, indirect_dep, 0, &t,
                     false);
+   batch->any_compute = true;
    panfrost_flush_all_batches(ctx, "Launch grid post-barrier");
 }
 #endif
