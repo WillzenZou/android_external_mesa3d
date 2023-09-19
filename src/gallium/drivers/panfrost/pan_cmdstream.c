@@ -4276,6 +4276,7 @@ csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
    ceu_run_idvs(b, pan_draw_mode(info->mode),
                 panfrost_translate_index_size(info->index_size),
                 secondary_shader);
+   batch->draw_count++;
 }
 #else // PAN_USE_CSF
 static void
@@ -4375,6 +4376,7 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
       panfrost_emit_vertex_tiler_jobs(batch, &vertex, &tiler);
    }
 #endif
+   batch->draw_count++;
 }
 #endif // PAN_USE_CSF
 
@@ -4501,7 +4503,6 @@ panfrost_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
          ctx->dirty |= PAN_DIRTY_DRAWID;
          drawid++;
       }
-      batch->draw_count++;
    }
 }
 
