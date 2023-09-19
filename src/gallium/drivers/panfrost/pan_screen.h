@@ -73,6 +73,9 @@ struct panfrost_vtable {
    mali_ptr (*emit_fragment_job)(struct panfrost_batch *,
                                  const struct pan_fb_info *);
 
+   /* Called to finish a batch. */
+   void (*emit_batch_end)(struct panfrost_batch *);
+
    /* General destructor */
    void (*screen_destroy)(struct pipe_screen *);
 

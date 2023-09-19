@@ -2679,12 +2679,6 @@ panfrost_emit_batch_end(struct panfrost_batch *batch)
 static mali_ptr
 emit_fragment_job(struct panfrost_batch *batch, const struct pan_fb_info *pfb)
 {
-   if (PAN_ARCH >= 10 && !batch->clear && !batch->draw_count) {
-      /* Compute only batch */
-      panfrost_emit_batch_end(batch);
-      return 0;
-   }
-
    /* Mark the affected buffers as initialized, since we're writing to it.
     * Also, add the surfaces we're writing to to the batch */
 
@@ -2749,7 +2743,6 @@ emit_fragment_job(struct panfrost_batch *batch, const struct pan_fb_info *pfb)
       ceu_wait_slot(b, 1);
    }
 
-   panfrost_emit_batch_end(batch);
    return 0;
 #else
    struct panfrost_ptr transfer =
@@ -5261,6 +5254,7 @@ GENX(panfrost_cmdstream_screen_init)(struct panfrost_screen *screen)
    screen->vtbl.emit_tls = emit_tls;
    screen->vtbl.emit_fbd = emit_fbd;
    screen->vtbl.emit_fragment_job = emit_fragment_job;
+   screen->vtbl.emit_batch_end = panfrost_emit_batch_end;
    screen->vtbl.screen_destroy = screen_destroy;
    screen->vtbl.preload = preload;
    screen->vtbl.context_populate_vtbl = context_populate_vtbl;
