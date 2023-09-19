@@ -11,6 +11,7 @@
 
 #include "util/hash_table.h"
 #include "util/macros.h"
+#include "util/simple_mtx.h"
 
 #include "drm-uapi/panfrost_drm.h"
 
@@ -20,7 +21,12 @@ const struct pan_kmod_ops panfrost_kmod_ops;
 
 struct panfrost_kmod_vm {
    struct pan_kmod_vm base;
-   struct hash_table_u64 *va_to_bo;
+#ifndef NDEBUG
+   struct {
+      struct hash_table_u64 *ht;
+      simple_mtx_t lock;
+   } va_to_bo;
+#endif
 };
 
 struct panfrost_kmod_dev {
@@ -301,25 +307,35 @@ panfrost_kmod_vm_create(struct pan_kmod_dev *dev, uint32_t flags,
       return NULL;
 
    pan_kmod_vm_init(&vm->base, dev, 0, flags);
-   vm->va_to_bo = _mesa_hash_table_u64_create(NULL);
-   if (!vm->va_to_bo)
-      goto err_free_vm;
+
+#ifndef NDEBUG
+   vm->va_to_bo.ht = _mesa_hash_table_u64_create(NULL);
+   if (!vm->va_to_bo.ht) {
+      pan_kmod_dev_free(dev, vm);
+      return NULL;
+   }
+   simple_mtx_init(&vm->va_to_bo.lock, mtx_plain);
+#endif
 
    panfrost_dev->vm = vm;
    return &vm->base;
-
-err_free_vm:
-   pan_kmod_dev_free(dev, vm);
-   return NULL;
 }
 
 static void
 panfrost_kmod_vm_destroy(struct pan_kmod_vm *vm)
 {
+   struct panfrost_kmod_vm *panfrost_vm =
+      container_of(vm, struct panfrost_kmod_vm, base);
    struct panfrost_kmod_dev *panfrost_dev =
       container_of(vm->dev, struct panfrost_kmod_dev, base);
 
    panfrost_dev->vm = NULL;
+
+#ifndef NDEBUG
+   _mesa_hash_table_u64_destroy(panfrost_vm->va_to_bo.ht);
+   simple_mtx_destroy(&panfrost_vm->va_to_bo.lock);
+#endif
+
    pan_kmod_dev_free(vm->dev, vm);
 }
 
@@ -343,9 +359,14 @@ panfrost_kmod_vm_map(struct pan_kmod_vm *vm, struct pan_kmod_bo *bo,
    va = panfrost_bo->offset;
 
    /* Make sure we don't have a BO mapped at this address. */
-   assert(_mesa_hash_table_u64_search(panfrost_vm->va_to_bo, va) == NULL);
+#ifndef NDEBUG
+   simple_mtx_lock(&panfrost_vm->va_to_bo.lock);
+   assert(_mesa_hash_table_u64_search(panfrost_vm->va_to_bo.ht, va) == NULL);
 
-   _mesa_hash_table_u64_insert(panfrost_vm->va_to_bo, va, bo);
+   _mesa_hash_table_u64_insert(panfrost_vm->va_to_bo.ht, va, bo);
+   simple_mtx_unlock(&panfrost_vm->va_to_bo.lock);
+#endif
+
    return va;
 }
 
@@ -354,13 +375,18 @@ panfrost_kmod_vm_unmap(struct pan_kmod_vm *vm, uint64_t va, size_t size)
 {
    struct panfrost_kmod_vm *panfrost_vm =
       container_of(vm, struct panfrost_kmod_vm, base);
+
+#ifndef NDEBUG
+   simple_mtx_lock(&panfrost_vm->va_to_bo.lock);
    ASSERTED struct panfrost_kmod_bo *panfrost_bo =
-      _mesa_hash_table_u64_search(panfrost_vm->va_to_bo, va);
+      _mesa_hash_table_u64_search(panfrost_vm->va_to_bo.ht, va);
 
    assert(panfrost_bo && panfrost_bo->base.size == size &&
           panfrost_bo->offset == va);
 
-   _mesa_hash_table_u64_remove(panfrost_vm->va_to_bo, va);
+   _mesa_hash_table_u64_remove(panfrost_vm->va_to_bo.ht, va);
+   simple_mtx_unlock(&panfrost_vm->va_to_bo.lock);
+#endif
 }
 
 const struct pan_kmod_ops panfrost_kmod_ops = {
