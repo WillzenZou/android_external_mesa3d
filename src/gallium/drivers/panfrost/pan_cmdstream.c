@@ -3639,7 +3639,7 @@ csf_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
    csf_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
                         batch->rsd[PIPE_SHADER_VERTEX]);
    /* XXX: Choose correctly */
-   ceu_run_compute(b, 10, MALI_TASK_AXIS_Z);
+   ceu_run_compute(b, 1, MALI_TASK_AXIS_Z);
 
    /* Reset registers expected to be 0 for IDVS */
    ceu_move32_to(b, ceu_reg32(b, 31), 0);
