@@ -992,7 +992,10 @@ panfrost_batch_submit_csf(struct panfrost_batch *batch,
 {
    struct panfrost_screen *screen = pan_screen(batch->ctx->base.screen);
 
-   screen->vtbl.emit_fragment_job(batch, fb);
+   if (panfrost_has_fragment_job(batch))
+      screen->vtbl.emit_fragment_job(batch, fb);
+
+   screen->vtbl.emit_batch_end(batch);
 
    unsigned count = ceu_finish(batch->ceu_builder);
 
