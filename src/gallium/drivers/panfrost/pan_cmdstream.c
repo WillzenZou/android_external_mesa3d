@@ -3575,11 +3575,6 @@ jm_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
               mali_ptr attribs, mali_ptr attrib_bufs, UNUSED unsigned start,
               unsigned count)
 {
-   batch->uniform_buffers[PIPE_SHADER_VERTEX] =
-      panfrost_emit_const_buf(batch, PIPE_SHADER_VERTEX, NULL,
-                              &batch->push_uniforms[PIPE_SHADER_VERTEX],
-                              &batch->nr_push_uniforms[PIPE_SHADER_VERTEX]);
-
    struct panfrost_ptr t = pan_pool_alloc_desc(&batch->pool.base, COMPUTE_JOB);
 
 #if PAN_ARCH == 9
@@ -3708,6 +3703,11 @@ panfrost_launch_xfb(struct panfrost_batch *batch,
    ctx->prog[PIPE_SHADER_VERTEX] = vs_uncompiled->xfb;
    batch->rsd[PIPE_SHADER_VERTEX] =
       panfrost_emit_compute_shader_meta(batch, PIPE_SHADER_VERTEX);
+
+   batch->uniform_buffers[PIPE_SHADER_VERTEX] =
+      panfrost_emit_const_buf(batch, PIPE_SHADER_VERTEX, NULL,
+                              &batch->push_uniforms[PIPE_SHADER_VERTEX],
+                              &batch->nr_push_uniforms[PIPE_SHADER_VERTEX]);
 
    JOBX(launch_xfb)(batch, info, attribs, attrib_bufs, start, count);
    batch->any_compute = true;
