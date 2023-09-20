@@ -152,9 +152,14 @@ pandecode_run_idvs(FILE *fp, struct queue_ctx *ctx, struct MALI_CEU_RUN_IDVS *I)
    uint64_t vary_srt = cs_get_u64(ctx, reg_vary_srt);
    uint64_t frag_srt = cs_get_u64(ctx, reg_frag_srt);
 
-   GENX(pandecode_resource_tables)(position_srt, "Position resources");
-   GENX(pandecode_resource_tables)(vary_srt, "Varying resources");
-   GENX(pandecode_resource_tables)(frag_srt, "Fragment resources");
+   if (position_srt)
+      GENX(pandecode_resource_tables)(position_srt, "Position resources");
+
+   if (vary_srt)
+      GENX(pandecode_resource_tables)(vary_srt, "Varying resources");
+
+   if (frag_srt)
+      GENX(pandecode_resource_tables)(frag_srt, "Fragment resources");
 
    mali_ptr position_fau = cs_get_u64(ctx, reg_position_fau);
    mali_ptr vary_fau = cs_get_u64(ctx, reg_vary_fau);
@@ -181,7 +186,10 @@ pandecode_run_idvs(FILE *fp, struct queue_ctx *ctx, struct MALI_CEU_RUN_IDVS *I)
       GENX(pandecode_fau)(lo, hi, "Fragment FAU");
    }
 
-   GENX(pandecode_shader)(cs_get_u64(ctx, 16), "Position shader", ctx->gpu_id);
+   if (cs_get_u64(ctx, 16)) {
+      GENX(pandecode_shader)
+      (cs_get_u64(ctx, 16), "Position shader", ctx->gpu_id);
+   }
 
    if (tiler_flags.secondary_shader) {
       uint64_t ptr = cs_get_u64(ctx, 18);
@@ -189,7 +197,10 @@ pandecode_run_idvs(FILE *fp, struct queue_ctx *ctx, struct MALI_CEU_RUN_IDVS *I)
       GENX(pandecode_shader)(ptr, "Varying shader", ctx->gpu_id);
    }
 
-   GENX(pandecode_shader)(cs_get_u64(ctx, 20), "Fragment shader", ctx->gpu_id);
+   if (cs_get_u64(ctx, 20)) {
+      GENX(pandecode_shader)
+      (cs_get_u64(ctx, 20), "Fragment shader", ctx->gpu_id);
+   }
 
    DUMP_ADDR(LOCAL_STORAGE, cs_get_u64(ctx, 24),
              "Position Local Storage @%" PRIx64 ":\n",
