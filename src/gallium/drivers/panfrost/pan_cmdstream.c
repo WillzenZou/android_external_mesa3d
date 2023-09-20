@@ -4196,19 +4196,19 @@ csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 
       cfg.single_sampled_lines = !rast->multisample;
 
+      bool has_oq = ctx->occlusion_query && ctx->active_queries;
+      if (has_oq) {
+         if (ctx->occlusion_query->type == PIPE_QUERY_OCCLUSION_COUNTER)
+            cfg.occlusion_query = MALI_OCCLUSION_MODE_COUNTER;
+         else
+            cfg.occlusion_query = MALI_OCCLUSION_MODE_PREDICATE;
+      }
+
       if (fs_required) {
-         bool has_oq = ctx->occlusion_query && ctx->active_queries;
          struct pan_earlyzs_state earlyzs = pan_earlyzs_get(
             fs->earlyzs, ctx->depth_stencil->writes_zs || has_oq,
             ctx->blend->base.alpha_to_coverage,
             ctx->depth_stencil->zs_always_passes);
-
-         if (has_oq) {
-            if (ctx->occlusion_query->type == PIPE_QUERY_OCCLUSION_COUNTER)
-               cfg.occlusion_query = MALI_OCCLUSION_MODE_COUNTER;
-            else
-               cfg.occlusion_query = MALI_OCCLUSION_MODE_PREDICATE;
-         }
 
          cfg.pixel_kill_operation = earlyzs.kill;
          cfg.zs_update_operation = earlyzs.update;
