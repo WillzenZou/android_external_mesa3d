@@ -114,6 +114,19 @@ typedef uint32_t xcb_window_t;
 
 #define panvk_stub() assert(!"stub")
 
+typedef uint64_t panvk_device_ptr;
+
+struct panvk_bo {
+   panvk_device_ptr device_ptr;
+   void *host_ptr;
+   struct pan_kmod_bo *kmod_bo;
+};
+
+struct panvk_bo* panvk_bo_alloc(struct panvk_device *dev, size_t size, uint32_t flags, const char *label);
+void panvk_bo_free(struct panvk_device *dev, struct panvk_bo *bo);
+void panvk_bo_mmap(struct panvk_device *dev, struct panvk_bo *bo);
+void panvk_bo_munmap(struct panvk_device *dev, struct panvk_bo *bo);
+
 #define PANVK_META_COPY_BUF2IMG_NUM_FORMATS  12
 #define PANVK_META_COPY_IMG2BUF_NUM_FORMATS  12
 #define PANVK_META_COPY_IMG2IMG_NUM_FORMATS  14
