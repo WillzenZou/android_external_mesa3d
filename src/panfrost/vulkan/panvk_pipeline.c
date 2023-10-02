@@ -47,7 +47,7 @@ panvk_DestroyPipeline(VkDevice _device, VkPipeline _pipeline,
    VK_FROM_HANDLE(panvk_device, device, _device);
    VK_FROM_HANDLE(panvk_pipeline, pipeline, _pipeline);
 
-   panfrost_bo_unreference(pipeline->binary_bo);
-   panfrost_bo_unreference(pipeline->state_bo);
+   panvk_bo_free(device, pipeline->binary_bo);
+   panvk_bo_free(device, pipeline->state_bo);
    vk_object_free(&device->vk, pAllocator, pipeline);
 }
