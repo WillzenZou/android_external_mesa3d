@@ -993,10 +993,9 @@ panfrost_batch_submit_csf(struct panfrost_batch *batch,
 
    screen->vtbl.emit_batch_end(batch);
 
-   unsigned count = ceu_finish(batch->ceu_builder);
-
    return panfrost_batch_submit_cs_ioctl(batch, batch->ceu_builder->root.gpu,
-                                         count * 8, in_sync, out_sync);
+                                         batch->ceu_builder->root_size * 8,
+                                         in_sync, out_sync);
 }
 
 static void

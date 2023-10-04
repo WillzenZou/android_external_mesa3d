@@ -2666,6 +2666,9 @@ csf_emit_batch_end(struct panfrost_batch *batch)
    ceu_flush_caches(b, MALI_CEU_FLUSH_MODE_CLEAN_AND_INVALIDATE,
                     MALI_CEU_FLUSH_MODE_CLEAN_AND_INVALIDATE, true, flush_id, 0,
                     0);
+
+   /* Finish the command stream */
+   ceu_finish(batch->ceu_builder);
 }
 #else
 static void
