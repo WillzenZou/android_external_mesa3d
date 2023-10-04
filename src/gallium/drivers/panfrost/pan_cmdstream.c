@@ -2583,12 +2583,13 @@ panfrost_emit_vertex_tiler_jobs(struct panfrost_batch *batch,
                                 const struct panfrost_ptr *vertex_job,
                                 const struct panfrost_ptr *tiler_job)
 {
-   unsigned vertex = panfrost_add_job(&batch->pool.base, &batch->scoreboard,
+   unsigned vertex = panfrost_add_job(&batch->pool.base, &batch->jm.jobs.vtc_jc,
                                       MALI_JOB_TYPE_VERTEX, false, false, 0, 0,
                                       vertex_job, false);
 
-   panfrost_add_job(&batch->pool.base, &batch->scoreboard, MALI_JOB_TYPE_TILER,
-                    false, false, vertex, 0, tiler_job, false);
+   panfrost_add_job(&batch->pool.base, &batch->jm.jobs.vtc_jc,
+                    MALI_JOB_TYPE_TILER, false, false, vertex, 0, tiler_job,
+                    false);
 }
 #endif
 
@@ -2655,15 +2656,15 @@ panfrost_initialize_surface(struct panfrost_batch *batch,
 static void
 csf_emit_batch_end(struct panfrost_batch *batch)
 {
-   ceu_builder *b = batch->ceu_builder;
+   ceu_builder *b = batch->csf.cs.builder;
 
    /* Barrier to let everything finish */
    ceu_wait_slots(b, BITFIELD_MASK(8));
 
    /* Get the CS state */
-   batch->cs_state = pan_pool_alloc_aligned(&batch->pool.base, 8, 8);
-   memset(batch->cs_state.cpu, ~0, 8);
-   ceu_move64_to(b, ceu_reg64(b, 90), batch->cs_state.gpu);
+   batch->csf.cs.state = pan_pool_alloc_aligned(&batch->pool.base, 8, 8);
+   memset(batch->csf.cs.state.cpu, ~0, 8);
+   ceu_move64_to(b, ceu_reg64(b, 90), batch->csf.cs.state.gpu);
    ceu_store_state(b, 0, ceu_reg64(b, 90), MALI_CEU_STATE_ERROR_STATUS, 0, 0);
 
    /* Flush caches now that we're done (synchronous) */
@@ -2674,7 +2675,7 @@ csf_emit_batch_end(struct panfrost_batch *batch)
                     0);
 
    /* Finish the command stream */
-   ceu_finish(batch->ceu_builder);
+   ceu_finish(batch->csf.cs.builder);
 }
 #else
 static void
@@ -2688,7 +2689,7 @@ static void
 csf_emit_fragment_job(struct panfrost_batch *batch,
                       const struct pan_fb_info *pfb)
 {
-   ceu_builder *b = batch->ceu_builder;
+   ceu_builder *b = batch->csf.cs.builder;
 
    if (batch->draw_count > 0) {
       /* Finish tiling and wait for IDVS and tiling */
@@ -2731,7 +2732,7 @@ jm_emit_fragment_job(struct panfrost_batch *batch,
 
    GENX(pan_emit_fragment_job)(pfb, batch->framebuffer.gpu, transfer.cpu);
 
-   batch->frag_job = transfer.gpu;
+   batch->jm.jobs.frag = transfer.gpu;
 }
 #endif
 
@@ -3046,7 +3047,7 @@ panfrost_update_state_3d(struct panfrost_batch *batch)
 static mali_ptr
 csf_emit_tiler_heap(struct panfrost_batch *batch)
 {
-   return batch->ctx->heap.desc_bo->ptr.gpu;
+   return batch->ctx->csf.heap.desc_bo->ptr.gpu;
 }
 #else
 static mali_ptr
@@ -3076,9 +3077,9 @@ panfrost_batch_get_bifrost_tiler(struct panfrost_batch *batch,
    mali_ptr heap, tmp_geom_buf = 0;
    u32 tmp_geom_buf_size = 0;
 
-   if (ctx->tmp_geom_bo) {
-      tmp_geom_buf = ctx->tmp_geom_bo->ptr.gpu;
-      tmp_geom_buf_size = ctx->tmp_geom_bo->kmod_bo->size;
+   if (ctx->csf.tmp_geom_bo) {
+      tmp_geom_buf = ctx->csf.tmp_geom_bo->ptr.gpu;
+      tmp_geom_buf_size = ctx->csf.tmp_geom_bo->kmod_bo->size;
    }
 
    heap = JOBX(emit_tiler_heap)(batch);
@@ -3257,7 +3258,7 @@ csf_emit_shader_regs(struct panfrost_batch *batch, enum pipe_shader_type stage,
    unsigned offset = (stage == PIPE_SHADER_FRAGMENT) ? 4 : 0;
    unsigned fau_count = DIV_ROUND_UP(batch->nr_push_uniforms[stage], 2);
 
-   ceu_builder *b = batch->ceu_builder;
+   ceu_builder *b = batch->csf.cs.builder;
    ceu_move64_to(b, ceu_reg64(b, 0 + offset), resources);
    ceu_move64_to(b, ceu_reg64(b, 8 + offset),
                  batch->push_uniforms[stage] | ((uint64_t)fau_count << 56));
@@ -3613,7 +3614,7 @@ jm_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 #if PAN_ARCH <= 5
    job_type = MALI_JOB_TYPE_VERTEX;
 #endif
-   panfrost_add_job(&batch->pool.base, &batch->scoreboard, job_type, true,
+   panfrost_add_job(&batch->pool.base, &batch->jm.jobs.vtc_jc, job_type, true,
                     false, 0, 0, &t, false);
 }
 
@@ -3623,7 +3624,7 @@ static void
 csf_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
                unsigned count)
 {
-   ceu_builder *b = batch->ceu_builder;
+   ceu_builder *b = batch->csf.cs.builder;
 
    ceu_move64_to(b, ceu_reg64(b, 24), batch->tls.gpu);
 
@@ -3789,7 +3790,7 @@ csf_launch_grid(struct panfrost_batch *batch, const struct pipe_grid_info *info)
 
    struct panfrost_context *ctx = batch->ctx;
    struct panfrost_compiled_shader *cs = ctx->prog[PIPE_SHADER_COMPUTE];
-   ceu_builder *b = batch->ceu_builder;
+   ceu_builder *b = batch->csf.cs.builder;
 
    csf_emit_shader_regs(batch, PIPE_SHADER_COMPUTE,
                         batch->rsd[PIPE_SHADER_COMPUTE]);
@@ -3943,11 +3944,11 @@ jm_launch_grid(struct panfrost_batch *batch, const struct pipe_grid_info *info)
       };
 
       indirect_dep = GENX(pan_indirect_dispatch_emit)(
-         &batch->pool.base, &batch->scoreboard, &indirect);
+         &batch->pool.base, &batch->jm.jobs.vtc_jc, &indirect);
    }
 #endif
 
-   panfrost_add_job(&batch->pool.base, &batch->scoreboard,
+   panfrost_add_job(&batch->pool.base, &batch->jm.jobs.vtc_jc,
                     MALI_JOB_TYPE_COMPUTE, true, false, indirect_dep, 0, &t,
                     false);
 }
@@ -4077,7 +4078,7 @@ csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 
    assert(idvs && "IDVS required for CSF");
 
-   ceu_builder *b = batch->ceu_builder;
+   ceu_builder *b = batch->csf.cs.builder;
 
    csf_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
                         panfrost_get_position_shader(batch, info));
@@ -4329,7 +4330,7 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
    panfrost_emit_malloc_vertex(batch, info, draw, indices, secondary_shader,
                                tiler.cpu);
 
-   panfrost_add_job(&batch->pool.base, &batch->scoreboard,
+   panfrost_add_job(&batch->pool.base, &batch->jm.jobs.vtc_jc,
                     MALI_JOB_TYPE_MALLOC_VERTEX, false, false, 0, 0, &tiler,
                     false);
 #else
@@ -4342,7 +4343,7 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
          batch, vs_vary, varyings,
          pan_section_ptr(tiler.cpu, INDEXED_VERTEX_JOB, VERTEX_DRAW));
 
-      panfrost_add_job(&batch->pool.base, &batch->scoreboard,
+      panfrost_add_job(&batch->pool.base, &batch->jm.jobs.vtc_jc,
                        MALI_JOB_TYPE_INDEXED_VERTEX, false, false, 0, 0, &tiler,
                        false);
 #endif
@@ -4414,7 +4415,7 @@ panfrost_direct_draw(struct panfrost_batch *batch,
 static inline void
 csf_prepare_first_draw(struct panfrost_batch *batch)
 {
-   ceu_vt_start(batch->ceu_builder);
+   ceu_vt_start(batch->csf.cs.builder);
 }
 #else
 static inline void
@@ -4973,7 +4974,7 @@ static void
 preload(struct panfrost_batch *batch, struct pan_fb_info *fb)
 {
    GENX(pan_preload_fb)
-   (&batch->pool.base, !PAN_USE_CSF ? &batch->scoreboard : NULL, fb,
+   (&batch->pool.base, !PAN_USE_CSF ? &batch->jm.jobs.vtc_jc : NULL, fb,
     batch->tls.gpu, PAN_ARCH >= 6 ? batch->tiler_ctx.bifrost.ctx : 0, NULL);
 }
 
@@ -5000,7 +5001,7 @@ ceu_alloc_queue(void *cookie)
 static void
 csf_cleanup_batch(struct panfrost_batch *batch)
 {
-   free(batch->ceu_builder);
+   free(batch->csf.cs.builder);
 }
 
 static void
@@ -5010,12 +5011,12 @@ csf_init_batch(struct panfrost_batch *batch)
    struct ceu_queue queue = ceu_alloc_queue(batch);
 
    /* Setup the queue builder */
-   batch->ceu_builder = malloc(sizeof(ceu_builder));
-   ceu_builder_init(batch->ceu_builder, 96, batch, queue);
-   ceu_require_all(batch->ceu_builder);
+   batch->csf.cs.builder = malloc(sizeof(ceu_builder));
+   ceu_builder_init(batch->csf.cs.builder, 96, batch, queue);
+   ceu_require_all(batch->csf.cs.builder);
 
    /* Set up entries */
-   ceu_builder *b = batch->ceu_builder;
+   ceu_builder *b = batch->csf.cs.builder;
    ceu_set_scoreboard_entry(b, 2, 0);
 
    /* Initialize the state vector */
@@ -5052,7 +5053,7 @@ csf_prepare_gsubmit(struct panfrost_context *ctx,
                     uint32_t qsubmit_count)
 {
    *gsubmit = (struct drm_panthor_group_submit){
-      .group_handle = ctx->group.handle,
+      .group_handle = ctx->csf.group_handle,
       .queue_submits = DRM_PANTHOR_OBJ_ARRAY(qsubmit_count, qsubmits),
    };
 }
@@ -5099,8 +5100,8 @@ csf_submit_gsubmit(struct panfrost_context *ctx,
 static int
 csf_submit_batch(struct panfrost_batch *batch)
 {
-   uint32_t cs_instr_count = batch->ceu_builder->root_size;
-   uint64_t cs_start = batch->ceu_builder->root.gpu;
+   uint32_t cs_instr_count = batch->csf.cs.builder->root_size;
+   uint64_t cs_start = batch->csf.cs.builder->root.gpu;
    uint32_t cs_size = cs_instr_count * 8;
    uint64_t vm_sync_signal_point, vm_sync_wait_point = 0, bo_sync_point;
    struct panfrost_context *ctx = batch->ctx;
@@ -5259,7 +5260,7 @@ csf_submit_batch(struct panfrost_batch *batch)
                                         true);
    } else {
       struct drm_panthor_group_get_state state = {
-         .group_handle = ctx->group.handle,
+         .group_handle = ctx->csf.group_handle,
       };
 
       ret = drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANTHOR_GROUP_GET_STATE,
@@ -5277,7 +5278,7 @@ csf_submit_batch(struct panfrost_batch *batch)
 
    /* Jobs won't be complete if blackhole rendering, that's ok */
    if (!ctx->is_noop && (dev->debug & PAN_DBG_SYNC) &&
-       *((uint64_t *)batch->cs_state.cpu) != 0) {
+       *((uint64_t *)batch->csf.cs.state.cpu) != 0) {
       fprintf(stderr, "Incomplete job or timeout\n");
       fflush(NULL);
       abort();
@@ -5394,7 +5395,7 @@ jm_submit_jc(struct panfrost_batch *batch, mali_ptr first_job_desc,
     * least one tiler job. Tiler heap is written by tiler jobs and read
     * by fragment jobs (the polygon list is coming from this heap).
     */
-   if (batch->scoreboard.first_tiler) {
+   if (batch->jm.jobs.vtc_jc.first_tiler) {
       bo_handles[submit.bo_handle_count++] =
          panfrost_bo_handle(dev->tiler_heap);
    }
@@ -5439,8 +5440,8 @@ static int
 jm_submit_batch(struct panfrost_batch *batch)
 {
    struct panfrost_device *dev = pan_device(batch->ctx->base.screen);
-   bool has_draws = batch->scoreboard.first_job;
-   bool has_tiler = batch->scoreboard.first_tiler;
+   bool has_draws = batch->jm.jobs.vtc_jc.first_job;
+   bool has_tiler = batch->jm.jobs.vtc_jc.first_tiler;
    bool has_frag = panfrost_has_fragment_job(batch);
    int ret;
 
@@ -5452,13 +5453,13 @@ jm_submit_batch(struct panfrost_batch *batch)
       pthread_mutex_lock(&dev->submit_lock);
 
    if (has_draws) {
-      ret = jm_submit_jc(batch, batch->scoreboard.first_job, 0);
+      ret = jm_submit_jc(batch, batch->jm.jobs.vtc_jc.first_job, 0);
       if (ret)
          goto done;
    }
 
    if (has_frag) {
-      ret = jm_submit_jc(batch, batch->frag_job, PANFROST_JD_REQ_FS);
+      ret = jm_submit_jc(batch, batch->jm.jobs.frag, PANFROST_JD_REQ_FS);
       if (ret)
          goto done;
    }
@@ -5512,7 +5513,7 @@ csf_init_context(struct panfrost_context *ctx)
 
    assert(!ret);
 
-   ctx->group.handle = gc.group_handle;
+   ctx->csf.group_handle = gc.group_handle;
 
    /* Get tiler heap */
    struct drm_panthor_tiler_heap_create thc = {
@@ -5527,20 +5528,20 @@ csf_init_context(struct panfrost_context *ctx)
 
    assert(!ret);
 
-   ctx->heap.handle = thc.handle;
+   ctx->csf.heap.handle = thc.handle;
 
-   ctx->heap.desc_bo =
+   ctx->csf.heap.desc_bo =
       panfrost_bo_create(dev, pan_size(TILER_HEAP), 0, "Tiler Heap");
-   pan_pack(ctx->heap.desc_bo->ptr.cpu, TILER_HEAP, heap) {
+   pan_pack(ctx->csf.heap.desc_bo->ptr.cpu, TILER_HEAP, heap) {
       heap.size = 2 * 1024 * 1024;
       heap.base = thc.first_heap_chunk_gpu_va;
       heap.bottom = heap.base + 64;
       heap.top = heap.base + heap.size;
    }
 
-   ctx->tmp_geom_bo = panfrost_bo_create(
+   ctx->csf.tmp_geom_bo = panfrost_bo_create(
       dev, POSITION_FIFO_SIZE, PAN_BO_INVISIBLE, "Temporary Geometry buffer");
-   assert(ctx->tmp_geom_bo);
+   assert(ctx->csf.tmp_geom_bo);
 
    /* Setup the tiler heap */
    struct panfrost_bo *cs_bo =
@@ -5585,22 +5586,22 @@ csf_cleanup_context(struct panfrost_context *ctx)
 {
    struct panfrost_device *dev = pan_device(ctx->base.screen);
    struct drm_panthor_tiler_heap_destroy thd = {
-      .handle = ctx->heap.handle,
+      .handle = ctx->csf.heap.handle,
    };
    int ret = drmIoctl(panfrost_device_fd(dev),
                       DRM_IOCTL_PANTHOR_TILER_HEAP_DESTROY, &thd);
    assert(!ret);
-   panfrost_bo_unreference(ctx->heap.desc_bo);
+   panfrost_bo_unreference(ctx->csf.heap.desc_bo);
 
    struct drm_panthor_group_destroy gd = {
-      .group_handle = ctx->group.handle,
+      .group_handle = ctx->csf.group_handle,
    };
 
    ret =
       drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANTHOR_GROUP_DESTROY, &gd);
    assert(!ret);
 
-   panfrost_bo_unreference(ctx->heap.desc_bo);
+   panfrost_bo_unreference(ctx->csf.heap.desc_bo);
 }
 #else
 static void
@@ -5643,7 +5644,7 @@ batch_get_polygon_list(struct panfrost_batch *batch)
    struct panfrost_device *dev = pan_device(batch->ctx->base.screen);
 
    if (!batch->tiler_ctx.midgard.polygon_list) {
-      bool has_draws = batch->scoreboard.first_tiler != NULL;
+      bool has_draws = batch->jm.jobs.vtc_jc.first_tiler != NULL;
       unsigned size = panfrost_tiler_get_polygon_list_size(
          dev, batch->key.width, batch->key.height,
          batch->tiler_ctx.vertex_count);
@@ -5685,8 +5686,8 @@ init_polygon_list(struct panfrost_batch *batch)
 {
 #if PAN_ARCH <= 5
    mali_ptr polygon_list = batch_get_polygon_list(batch);
-   panfrost_scoreboard_initialize_tiler(&batch->pool.base, &batch->scoreboard,
-                                        polygon_list);
+   panfrost_scoreboard_initialize_tiler(&batch->pool.base,
+                                        &batch->jm.jobs.vtc_jc, polygon_list);
 #endif
 }
 

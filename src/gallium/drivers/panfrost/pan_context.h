@@ -49,6 +49,9 @@
 #include "compiler/shader_enums.h"
 #include "midgard/midgard_compile.h"
 
+#include "pan_csf.h"
+#include "pan_jm.h"
+
 #define SET_BIT(lval, bit, cond)                                               \
    if (cond)                                                                   \
       lval |= (bit);                                                           \
@@ -228,16 +231,10 @@ struct panfrost_context {
    int in_sync_fd;
    uint32_t in_sync_obj;
 
-   struct {
-      uint32_t handle;
-   } group;
-
-   struct {
-      uint32_t handle;
-      struct panfrost_bo *desc_bo;
-   } heap;
-
-   struct panfrost_bo *tmp_geom_bo;
+   union {
+      struct panfrost_jm_context jm;
+      struct panfrost_csf_context csf;
+   };
 };
 
 /* Corresponds to the CSO */

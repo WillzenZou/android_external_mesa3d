@@ -29,6 +29,8 @@
 #include "pipe/p_state.h"
 #include "util/u_dynarray.h"
 #include "pan_cs.h"
+#include "pan_csf.h"
+#include "pan_jm.h"
 #include "pan_mempool.h"
 #include "pan_resource.h"
 #include "pan_scoreboard.h"
@@ -143,15 +145,6 @@ struct panfrost_batch {
     * varyings */
    struct panfrost_pool invisible_pool;
 
-   /* Job scoreboarding state */
-   struct pan_scoreboard scoreboard;
-   mali_ptr frag_job;
-
-   struct ceu_builder *ceu_builder;
-
-   /* CSF stream state BO. */
-   struct panfrost_ptr cs_state;
-
    /* Scratchpad BO bound to the batch, or NULL if none bound yet */
    struct panfrost_bo *scratchpad;
 
@@ -201,6 +194,12 @@ struct panfrost_batch {
    struct pan_tristate first_provoking_vertex;
 
    uint32_t draw_count;
+
+   /* Job frontend specific fields. */
+   union {
+      struct panfrost_jm_batch jm;
+      struct panfrost_csf_batch csf;
+   };
 };
 
 /* Functions for managing the above */
