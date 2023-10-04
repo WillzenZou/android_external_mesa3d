@@ -970,10 +970,6 @@ panfrost_batch_submit_csf(struct panfrost_batch *batch,
                           const struct pan_fb_info *fb, uint32_t in_sync,
                           uint32_t out_sync)
 {
-   struct panfrost_screen *screen = pan_screen(batch->ctx->base.screen);
-
-   screen->vtbl.emit_batch_end(batch);
-
    return panfrost_batch_submit_cs_ioctl(batch, batch->ceu_builder->root.gpu,
                                          batch->ceu_builder->root_size * 8,
                                          in_sync, out_sync);
@@ -1048,6 +1044,8 @@ panfrost_batch_submit(struct panfrost_context *ctx,
       screen->vtbl.emit_fbd(batch, &fb);
       screen->vtbl.emit_fragment_job(batch, &fb);
    }
+
+   screen->vtbl.emit_batch_end(batch);
 
    if (dev->arch >= 10)
       ret = panfrost_batch_submit_csf(batch, &fb, 0, ctx->syncobj);
