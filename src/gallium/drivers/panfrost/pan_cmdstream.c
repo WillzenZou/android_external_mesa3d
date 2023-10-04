@@ -5142,11 +5142,14 @@ csf_submit_batch(struct panfrost_batch *batch)
       if (bo_sync_handle == vm_sync_handle) {
          vm_sync_wait_point = MAX2(vm_sync_wait_point, bo_sync_point);
       } else {
-         assert(bo_sync_point == 0);
+         assert(bo_sync_point == 0 || !bo->kmod_bo->exclusive_vm);
          syncs[sync_count++] = (struct drm_panthor_sync_op){
-            .flags = DRM_PANTHOR_SYNC_OP_WAIT |
-                     DRM_PANTHOR_SYNC_OP_HANDLE_TYPE_SYNCOBJ,
+            .flags =
+               DRM_PANTHOR_SYNC_OP_WAIT |
+               (bo_sync_point ? DRM_PANTHOR_SYNC_OP_HANDLE_TYPE_TIMELINE_SYNCOBJ
+                              : DRM_PANTHOR_SYNC_OP_HANDLE_TYPE_SYNCOBJ),
             .handle = bo_sync_handle,
+            .timeline_value = bo_sync_point,
          };
       }
    }
