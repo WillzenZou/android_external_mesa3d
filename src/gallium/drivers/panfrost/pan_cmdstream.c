@@ -4974,6 +4974,25 @@ preload(struct panfrost_batch *batch, struct pan_fb_info *fb)
 }
 
 #if PAN_USE_CSF
+struct ceu_queue
+ceu_alloc_queue(void *cookie)
+{
+   assert(cookie && "Self-contained queues can't be extended.");
+
+   struct panfrost_batch *batch = cookie;
+   unsigned capacity = 4096;
+   struct panfrost_bo *bo = panfrost_batch_create_bo(
+      batch, capacity * 8, 0, PIPE_SHADER_VERTEX, "Command queue");
+
+   memset(bo->ptr.cpu, 0xFF, capacity * 8);
+
+   return (struct ceu_queue){
+      .cpu = bo->ptr.cpu,
+      .gpu = bo->ptr.gpu,
+      .capacity = capacity,
+   };
+}
+
 static void
 csf_init_batch(struct panfrost_batch *batch)
 {

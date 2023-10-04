@@ -445,20 +445,6 @@ panfrost_batch_get_shared_memory(struct panfrost_batch *batch, unsigned size,
    return batch->shared_memory;
 }
 
-struct ceu_queue
-ceu_alloc_queue(void *cookie)
-{
-   struct panfrost_batch *batch = cookie;
-   unsigned capacity = 4096;
-   struct panfrost_bo *bo = panfrost_batch_create_bo(
-      batch, capacity * 8, 0, PIPE_SHADER_VERTEX, "Command queue");
-   memset(bo->ptr.cpu, 0xFF, capacity * 8);
-
-   return (struct ceu_queue){.cpu = bo->ptr.cpu,
-                             .gpu = bo->ptr.gpu,
-                             .capacity = capacity};
-}
-
 static void
 panfrost_batch_to_fb_info(const struct panfrost_batch *batch,
                           struct pan_fb_info *fb, struct pan_image_view *rts,
