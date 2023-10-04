@@ -49,10 +49,12 @@
 #include "pan_texture.h"
 #include "pan_util.h"
 
-#include "drm-uapi/panthor_drm.h"
-
 #define PAN_GPU_INDIRECTS (PAN_ARCH == 7)
 #define PAN_USE_CSF       (PAN_ARCH >= 10)
+
+#if PAN_USE_CSF
+#include "drm-uapi/panthor_drm.h"
+#endif
 
 /* JOBX() is used to select the job backend helpers to call from generic
  * functions. */
