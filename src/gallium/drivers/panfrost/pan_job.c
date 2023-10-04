@@ -724,12 +724,6 @@ panfrost_batch_submit_ioctl(struct panfrost_batch *batch,
    return 0;
 }
 
-static bool
-panfrost_has_fragment_job(struct panfrost_batch *batch)
-{
-   return batch->draw_count > 0 || batch->clear;
-}
-
 /* Submit both vertex/tiler and fragment jobs for a batch, possibly with an
  * outsync corresponding to the later of the two (since there will be an
  * implicit dep between them) */
