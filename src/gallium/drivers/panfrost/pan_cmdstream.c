@@ -38,6 +38,8 @@
 #include "genxml/ceu_builder.h"
 #include "genxml/gen_macros.h"
 
+#include "decode.h"
+
 #include "pan_blend.h"
 #include "pan_blitter.h"
 #include "pan_bo.h"
@@ -54,6 +56,8 @@
 
 #if PAN_USE_CSF
 #include "drm-uapi/panthor_drm.h"
+#else
+#include "drm-uapi/panfrost_drm.h"
 #endif
 
 /* JOBX() is used to select the job backend helpers to call from generic
@@ -5025,6 +5029,261 @@ csf_init_batch(struct panfrost_batch *batch)
       PAN_DESC_ARRAY(MAX2(batch->key.nr_cbufs, 1), RENDER_TARGET));
    batch->tls = pan_pool_alloc_desc(&batch->pool.base, LOCAL_STORAGE);
 }
+
+static void
+csf_prepare_qsubmit(struct panfrost_context *ctx,
+                    struct drm_panthor_queue_submit *submit, uint8_t queue,
+                    uint64_t cs_start, uint32_t cs_size,
+                    struct drm_panthor_sync_op *syncs, uint32_t sync_count)
+{
+   struct panfrost_device *dev = pan_device(ctx->base.screen);
+
+   *submit = (struct drm_panthor_queue_submit){
+      .queue_index = queue,
+      .stream_addr = cs_start,
+      .stream_size = cs_size,
+      .latest_flush = panthor_kmod_get_flush_id(dev->kmod.dev),
+      .syncs = DRM_PANTHOR_OBJ_ARRAY(sync_count, syncs),
+   };
+}
+
+static void
+csf_prepare_gsubmit(struct panfrost_context *ctx,
+                    struct drm_panthor_group_submit *gsubmit,
+                    struct drm_panthor_queue_submit *qsubmits,
+                    uint32_t qsubmit_count)
+{
+   *gsubmit = (struct drm_panthor_group_submit){
+      .group_handle = ctx->group.handle,
+      .queue_submits = DRM_PANTHOR_OBJ_ARRAY(qsubmit_count, qsubmits),
+   };
+}
+
+static int
+csf_submit_gsubmit(struct panfrost_context *ctx,
+                   struct drm_panthor_group_submit *gsubmit)
+{
+   struct panfrost_device *dev = pan_device(ctx->base.screen);
+   int ret = 0;
+
+   if (!ctx->is_noop) {
+      ret = drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANTHOR_GROUP_SUBMIT,
+                     gsubmit);
+   }
+
+   if (ret)
+      return errno;
+
+   if (dev->debug & (PAN_DBG_TRACE | PAN_DBG_SYNC)) {
+      /* Wait so we can get errors reported back */
+      drmSyncobjWait(panfrost_device_fd(dev), &ctx->syncobj, 1, INT64_MAX, 0,
+                     NULL);
+
+      if ((dev->debug & PAN_DBG_TRACE) && dev->arch >= 10) {
+         const struct drm_panthor_queue_submit *qsubmits =
+            (void *)(uintptr_t)gsubmit->queue_submits.array;
+
+         for (unsigned i = 0; i < gsubmit->queue_submits.count; i++) {
+            uint32_t regs[256] = {0};
+            pandecode_cs(dev->decode_ctx, qsubmits[i].stream_addr,
+                         qsubmits[i].stream_size, panfrost_device_gpu_id(dev),
+                         regs);
+         }
+      }
+
+      if (dev->debug & PAN_DBG_DUMP)
+         pandecode_dump_mappings(dev->decode_ctx);
+   }
+
+   return 0;
+}
+
+static int
+csf_submit_batch(struct panfrost_batch *batch)
+{
+   uint32_t cs_instr_count = batch->ceu_builder->root_size;
+   uint64_t cs_start = batch->ceu_builder->root.gpu;
+   uint32_t cs_size = cs_instr_count * 8;
+   uint64_t vm_sync_signal_point, vm_sync_wait_point = 0, bo_sync_point;
+   struct panfrost_context *ctx = batch->ctx;
+   struct panfrost_device *dev = pan_device(ctx->base.screen);
+   uint32_t vm_sync_handle, bo_sync_handle, sync_count = 0;
+   struct drm_panthor_sync_op *syncs = NULL;
+   int ret;
+
+   panthor_kmod_vm_new_sync_point(dev->kmod.vm, &vm_sync_handle,
+                                  &vm_sync_signal_point);
+   assert(vm_sync_handle > 0 && vm_sync_signal_point > 0);
+
+   syncs = calloc(batch->num_bos + 5, sizeof(*syncs));
+   assert(syncs);
+
+   util_dynarray_foreach(&batch->bos, pan_bo_access, ptr) {
+      unsigned i = ptr - util_dynarray_element(&batch->bos, pan_bo_access, 0);
+      pan_bo_access flags = *ptr;
+
+      if (!flags)
+         continue;
+
+      /* Update the BO access flags so that panfrost_bo_wait() knows
+       * about all pending accesses.
+       * We only keep the READ/WRITE info since this is all the BO
+       * wait logic cares about.
+       * We also preserve existing flags as this batch might not
+       * be the first one to access the BO.
+       */
+      struct panfrost_bo *bo = pan_lookup_bo(dev, i);
+
+      bo->gpu_access |= flags & (PAN_BO_ACCESS_RW);
+
+      ret = panthor_kmod_bo_get_sync_point(bo->kmod_bo, &bo_sync_handle,
+                                           &bo_sync_point,
+                                           !(flags & PAN_BO_ACCESS_WRITE));
+      if (ret)
+         return ret;
+
+      if (bo_sync_handle == vm_sync_handle) {
+         vm_sync_wait_point = MAX2(vm_sync_wait_point, bo_sync_point);
+      } else {
+         assert(bo_sync_point == 0);
+         syncs[sync_count++] = (struct drm_panthor_sync_op){
+            .flags = DRM_PANTHOR_SYNC_OP_WAIT |
+                     DRM_PANTHOR_SYNC_OP_HANDLE_TYPE_SYNCOBJ,
+            .handle = bo_sync_handle,
+         };
+      }
+   }
+
+   util_dynarray_foreach(&batch->pool.bos, struct panfrost_bo *, bo) {
+      (*bo)->gpu_access |= PAN_BO_ACCESS_RW;
+
+      ret = panthor_kmod_bo_get_sync_point((*bo)->kmod_bo, &bo_sync_handle,
+                                           &bo_sync_point, false);
+      if (ret)
+         return ret;
+
+      assert(bo_sync_handle == vm_sync_handle);
+      vm_sync_wait_point = MAX2(vm_sync_wait_point, bo_sync_point);
+   }
+
+   util_dynarray_foreach(&batch->invisible_pool.bos, struct panfrost_bo *, bo) {
+      (*bo)->gpu_access |= PAN_BO_ACCESS_RW;
+
+      ret = panthor_kmod_bo_get_sync_point((*bo)->kmod_bo, &bo_sync_handle,
+                                           &bo_sync_point, false);
+      if (ret)
+         return ret;
+
+      assert(bo_sync_handle == vm_sync_handle);
+      vm_sync_wait_point = MAX2(vm_sync_wait_point, bo_sync_point);
+   }
+
+   /* Always used on Bifrost, occassionally used on Midgard */
+   panthor_kmod_bo_get_sync_point(dev->sample_positions->kmod_bo,
+                                  &bo_sync_handle, &bo_sync_point, true);
+   dev->sample_positions->gpu_access |= PAN_BO_ACCESS_READ;
+   vm_sync_wait_point = MAX2(vm_sync_wait_point, bo_sync_point);
+
+   if (vm_sync_wait_point > 0) {
+      syncs[sync_count++] = (struct drm_panthor_sync_op){
+         .flags = DRM_PANTHOR_SYNC_OP_WAIT |
+                  DRM_PANTHOR_SYNC_OP_HANDLE_TYPE_TIMELINE_SYNCOBJ,
+         .handle = vm_sync_handle,
+         .timeline_value = vm_sync_wait_point,
+      };
+   }
+
+   syncs[sync_count++] = (struct drm_panthor_sync_op){
+      .flags = DRM_PANTHOR_SYNC_OP_SIGNAL |
+               DRM_PANTHOR_SYNC_OP_HANDLE_TYPE_TIMELINE_SYNCOBJ,
+      .handle = vm_sync_handle,
+      .timeline_value = vm_sync_signal_point,
+   };
+
+   syncs[sync_count++] = (struct drm_panthor_sync_op){
+      .flags =
+         DRM_PANTHOR_SYNC_OP_SIGNAL | DRM_PANTHOR_SYNC_OP_HANDLE_TYPE_SYNCOBJ,
+      .handle = ctx->syncobj,
+   };
+
+   if (ctx->in_sync_fd >= 0) {
+      ret = drmSyncobjImportSyncFile(panfrost_device_fd(dev), ctx->in_sync_obj,
+                                     ctx->in_sync_fd);
+      assert(!ret);
+
+      syncs[sync_count++] = (struct drm_panthor_sync_op){
+         .flags =
+            DRM_PANTHOR_SYNC_OP_WAIT | DRM_PANTHOR_SYNC_OP_HANDLE_TYPE_SYNCOBJ,
+         .handle = ctx->in_sync_obj,
+      };
+      close(ctx->in_sync_fd);
+      ctx->in_sync_fd = -1;
+   }
+
+   struct drm_panthor_queue_submit qsubmit;
+   struct drm_panthor_group_submit gsubmit;
+
+   csf_prepare_qsubmit(ctx, &qsubmit, 0, cs_start, cs_size, syncs, sync_count);
+   csf_prepare_gsubmit(ctx, &gsubmit, &qsubmit, 1);
+   ret = csf_submit_gsubmit(ctx, &gsubmit);
+   if (!ret) {
+      util_dynarray_foreach(&batch->bos, pan_bo_access, ptr) {
+         unsigned i =
+            ptr - util_dynarray_element(&batch->bos, pan_bo_access, 0);
+         pan_bo_access flags = *ptr;
+
+         if (!flags)
+            continue;
+
+         struct panfrost_bo *bo = pan_lookup_bo(dev, i);
+
+         panthor_kmod_bo_attach_sync_point(bo->kmod_bo, vm_sync_handle,
+                                           vm_sync_signal_point,
+                                           !(flags & PAN_BO_ACCESS_WRITE));
+      }
+
+      util_dynarray_foreach(&batch->pool.bos, struct panfrost_bo *, bo) {
+         panthor_kmod_bo_attach_sync_point((*bo)->kmod_bo, vm_sync_handle,
+                                           vm_sync_signal_point, false);
+      }
+
+      util_dynarray_foreach(&batch->invisible_pool.bos, struct panfrost_bo *,
+                            bo) {
+         panthor_kmod_bo_attach_sync_point((*bo)->kmod_bo, vm_sync_handle,
+                                           vm_sync_signal_point, false);
+      }
+
+      panthor_kmod_bo_attach_sync_point(dev->sample_positions->kmod_bo,
+                                        vm_sync_handle, vm_sync_signal_point,
+                                        true);
+   } else {
+      struct drm_panthor_group_get_state state = {
+         .group_handle = ctx->group.handle,
+      };
+
+      ret = drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANTHOR_GROUP_GET_STATE,
+                     &state);
+      assert(!ret);
+
+      if (state.state != 0)
+         panfrost_context_reinit(ctx);
+   }
+
+   free(syncs);
+
+   if (ret)
+      return errno;
+
+   /* Jobs won't be complete if blackhole rendering, that's ok */
+   if (!ctx->is_noop && (dev->debug & PAN_DBG_SYNC) &&
+       *((uint64_t *)batch->cs_state.cpu) != 0) {
+      fprintf(stderr, "Incomplete job or timeout\n");
+      fflush(NULL);
+      abort();
+   }
+
+   return 0;
+}
 #else
 static void
 jm_cleanup_batch(struct panfrost_batch *batch)
@@ -5061,6 +5320,153 @@ jm_init_batch(struct panfrost_batch *batch)
    batch->tls.gpu = ptr.opaque[0];
 #endif
 #endif
+}
+
+static int
+jm_submit_jc(struct panfrost_batch *batch, mali_ptr first_job_desc,
+             uint32_t reqs)
+{
+   struct panfrost_context *ctx = batch->ctx;
+   struct panfrost_device *dev = pan_device(ctx->base.screen);
+   bool has_frag = panfrost_has_fragment_job(batch);
+   struct drm_panfrost_submit submit = {
+      .jc = first_job_desc,
+      .requirements = reqs,
+   };
+   uint32_t in_syncs[1];
+   uint32_t *bo_handles;
+   int ret;
+
+   if ((reqs & PANFROST_JD_REQ_FS) || !has_frag ||
+       (dev->debug & (PAN_DBG_SYNC | PAN_DBG_TRACE)))
+      submit.out_sync = ctx->syncobj;
+
+   if (ctx->in_sync_fd >= 0) {
+      ret = drmSyncobjImportSyncFile(panfrost_device_fd(dev), ctx->in_sync_obj,
+                                     ctx->in_sync_fd);
+      assert(!ret);
+
+      in_syncs[submit.in_sync_count++] = ctx->in_sync_obj;
+      close(ctx->in_sync_fd);
+      ctx->in_sync_fd = -1;
+   }
+
+   if (submit.in_sync_count)
+      submit.in_syncs = (uintptr_t)in_syncs;
+
+   bo_handles = calloc(panfrost_pool_num_bos(&batch->pool) +
+                          panfrost_pool_num_bos(&batch->invisible_pool) +
+                          batch->num_bos + 2,
+                       sizeof(*bo_handles));
+   assert(bo_handles);
+
+   pan_bo_access *flags = util_dynarray_begin(&batch->bos);
+   unsigned end_bo = util_dynarray_num_elements(&batch->bos, pan_bo_access);
+
+   for (int i = 0; i < end_bo; ++i) {
+      if (!flags[i])
+         continue;
+
+      assert(submit.bo_handle_count < batch->num_bos);
+      bo_handles[submit.bo_handle_count++] = i;
+
+      /* Update the BO access flags so that panfrost_bo_wait() knows
+       * about all pending accesses.
+       * We only keep the READ/WRITE info since this is all the BO
+       * wait logic cares about.
+       * We also preserve existing flags as this batch might not
+       * be the first one to access the BO.
+       */
+      struct panfrost_bo *bo = pan_lookup_bo(dev, i);
+
+      bo->gpu_access |= flags[i] & (PAN_BO_ACCESS_RW);
+   }
+
+   panfrost_pool_get_bo_handles(&batch->pool,
+                                bo_handles + submit.bo_handle_count);
+   submit.bo_handle_count += panfrost_pool_num_bos(&batch->pool);
+   panfrost_pool_get_bo_handles(&batch->invisible_pool,
+                                bo_handles + submit.bo_handle_count);
+   submit.bo_handle_count += panfrost_pool_num_bos(&batch->invisible_pool);
+
+   /* Add the tiler heap to the list of accessed BOs if the batch has at
+    * least one tiler job. Tiler heap is written by tiler jobs and read
+    * by fragment jobs (the polygon list is coming from this heap).
+    */
+   if (batch->scoreboard.first_tiler) {
+      bo_handles[submit.bo_handle_count++] =
+         panfrost_bo_handle(dev->tiler_heap);
+   }
+
+   /* Always used on Bifrost, occassionally used on Midgard */
+   bo_handles[submit.bo_handle_count++] =
+      panfrost_bo_handle(dev->sample_positions);
+
+   submit.bo_handles = (u64)(uintptr_t)bo_handles;
+   if (ctx->is_noop)
+      ret = 0;
+   else
+      ret =
+         drmIoctl(panfrost_device_fd(dev), DRM_IOCTL_PANFROST_SUBMIT, &submit);
+   free(bo_handles);
+
+   if (ret)
+      return errno;
+
+   /* Trace the job if we're doing that */
+   if (dev->debug & (PAN_DBG_TRACE | PAN_DBG_SYNC)) {
+      /* Wait so we can get errors reported back */
+      drmSyncobjWait(panfrost_device_fd(dev), &ctx->syncobj, 1, INT64_MAX, 0,
+                     NULL);
+
+      if (dev->debug & PAN_DBG_TRACE)
+         pandecode_jc(dev->decode_ctx, submit.jc, panfrost_device_gpu_id(dev));
+
+      if (dev->debug & PAN_DBG_DUMP)
+         pandecode_dump_mappings(dev->decode_ctx);
+
+      /* Jobs won't be complete if blackhole rendering, that's ok */
+      if (!ctx->is_noop && dev->debug & PAN_DBG_SYNC)
+         pandecode_abort_on_fault(dev->decode_ctx, submit.jc,
+                                  panfrost_device_gpu_id(dev));
+   }
+
+   return 0;
+}
+
+static int
+jm_submit_batch(struct panfrost_batch *batch)
+{
+   struct panfrost_device *dev = pan_device(batch->ctx->base.screen);
+   bool has_draws = batch->scoreboard.first_job;
+   bool has_tiler = batch->scoreboard.first_tiler;
+   bool has_frag = panfrost_has_fragment_job(batch);
+   int ret;
+
+   /* Take the submit lock to make sure no tiler jobs from other context
+    * are inserted between our tiler and fragment jobs, failing to do that
+    * might result in tiler heap corruption.
+    */
+   if (has_tiler)
+      pthread_mutex_lock(&dev->submit_lock);
+
+   if (has_draws) {
+      ret = jm_submit_jc(batch, batch->scoreboard.first_job, 0);
+      if (ret)
+         goto done;
+   }
+
+   if (has_frag) {
+      ret = jm_submit_jc(batch, batch->frag_job, PANFROST_JD_REQ_FS);
+      if (ret)
+         goto done;
+   }
+
+done:
+   if (has_tiler)
+      pthread_mutex_unlock(&dev->submit_lock);
+
+   return ret;
 }
 #endif
 
@@ -5274,6 +5680,7 @@ GENX(panfrost_cmdstream_screen_init)(struct panfrost_screen *screen)
    screen->vtbl.context_cleanup = JOBX(cleanup_context);
    screen->vtbl.init_batch = JOBX(init_batch);
    screen->vtbl.cleanup_batch = JOBX(cleanup_batch);
+   screen->vtbl.submit_batch = JOBX(submit_batch);
    screen->vtbl.get_blend_shader = GENX(pan_blend_get_shader_locked);
    screen->vtbl.init_polygon_list = init_polygon_list;
    screen->vtbl.get_compiler_options = GENX(pan_shader_get_compiler_options);
