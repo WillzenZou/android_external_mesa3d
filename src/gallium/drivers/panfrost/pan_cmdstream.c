@@ -5541,16 +5541,42 @@ csf_init_context(struct panfrost_context *ctx)
       dev, POSITION_FIFO_SIZE, PAN_BO_INVISIBLE, "Temporary Geometry buffer");
    assert(ctx->tmp_geom_bo);
 
-   struct panfrost_batch *batch = panfrost_get_batch_for_fbo(ctx);
-
    /* Setup the tiler heap */
-   ceu_builder *b = batch->ceu_builder;
-   ceu_index heap = ceu_reg64(b, 72);
-   ceu_move64_to(b, heap, thc.tiler_heap_ctx_gpu_va);
-   ceu_heap_set(b, heap);
+   struct panfrost_bo *cs_bo =
+      panfrost_bo_create(dev, 4096, 0, "Temporary CS buffer");
+   assert(cs_bo);
 
-   batch->any_compute = 1;
-   panfrost_flush_all_batches(ctx, "Gfx queue init");
+   struct ceu_queue init_queue = {
+      .cpu = cs_bo->ptr.cpu,
+      .gpu = cs_bo->ptr.gpu,
+      .capacity = panfrost_bo_size(cs_bo) / sizeof(uint64_t),
+   };
+   ceu_builder b;
+   ceu_builder_init(&b, 96, NULL, init_queue);
+   ceu_index heap = ceu_reg64(&b, 72);
+   ceu_move64_to(&b, heap, thc.tiler_heap_ctx_gpu_va);
+   ceu_heap_set(&b, heap);
+
+   struct drm_panthor_queue_submit qsubmit;
+   struct drm_panthor_group_submit gsubmit;
+   struct drm_panthor_sync_op sync = {
+      .flags = DRM_PANTHOR_SYNC_OP_SIGNAL |
+               DRM_PANTHOR_SYNC_OP_HANDLE_TYPE_SYNCOBJ,
+      .handle = ctx->syncobj,
+   };
+   uint32_t cs_instr_count = ceu_finish(&b);
+   uint64_t cs_start = b.root.gpu;
+   uint32_t cs_size = cs_instr_count * 8;
+
+   csf_prepare_qsubmit(ctx, &qsubmit, 0, cs_start, cs_size, &sync, 1);
+   csf_prepare_gsubmit(ctx, &gsubmit, &qsubmit, 1);
+   ret = csf_submit_gsubmit(ctx, &gsubmit);
+   assert(!ret);
+
+   /* Wait before freeing the buffer. */
+   drmSyncobjWait(panfrost_device_fd(dev), &ctx->syncobj, 1, INT64_MAX, 0,
+                  NULL);
+   panfrost_bo_unreference(cs_bo);
 }
 
 static void
