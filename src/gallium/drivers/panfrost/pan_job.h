@@ -152,9 +152,6 @@ struct panfrost_batch {
    /* CSF stream state BO. */
    struct panfrost_ptr cs_state;
 
-   /* Polygon list bound to the batch, or NULL if none bound yet */
-   struct panfrost_bo *polygon_list;
-
    /* Scratchpad BO bound to the batch, or NULL if none bound yet */
    struct panfrost_bo *scratchpad;
 
