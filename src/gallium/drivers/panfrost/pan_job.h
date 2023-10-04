@@ -145,6 +145,7 @@ struct panfrost_batch {
 
    /* Job scoreboarding state */
    struct pan_scoreboard scoreboard;
+   mali_ptr frag_job;
 
    struct ceu_builder *ceu_builder;
 

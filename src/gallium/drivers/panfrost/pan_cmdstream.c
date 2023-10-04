@@ -2675,7 +2675,7 @@ jm_emit_batch_end(struct panfrost_batch *batch)
 #endif
 
 #if PAN_USE_CSF
-static mali_ptr
+static void
 csf_emit_fragment_job(struct panfrost_batch *batch,
                       const struct pan_fb_info *pfb)
 {
@@ -2711,11 +2711,9 @@ csf_emit_fragment_job(struct panfrost_batch *batch,
       ceu_finish_fragment(b, true, ceu_reg64(b, 90), ceu_reg64(b, 92), 0x0, 1);
       ceu_wait_slot(b, 1);
    }
-
-   return 0;
 }
 #else
-static mali_ptr
+static void
 jm_emit_fragment_job(struct panfrost_batch *batch,
                      const struct pan_fb_info *pfb)
 {
@@ -2724,14 +2722,14 @@ jm_emit_fragment_job(struct panfrost_batch *batch,
 
    GENX(pan_emit_fragment_job)(pfb, batch->framebuffer.gpu, transfer.cpu);
 
-   return transfer.gpu;
+   batch->frag_job = transfer.gpu;
 }
 #endif
 
 /* Generate a fragment job. This should be called once per frame. (Usually,
  * this corresponds to eglSwapBuffers or one of glFlush, glFinish)
  */
-static mali_ptr
+static void
 emit_fragment_job(struct panfrost_batch *batch, const struct pan_fb_info *pfb)
 {
    /* Mark the affected buffers as initialized, since we're writing to it.
@@ -2764,7 +2762,7 @@ emit_fragment_job(struct panfrost_batch *batch, const struct pan_fb_info *pfb)
    assert(batch->maxx > batch->minx);
    assert(batch->maxy > batch->miny);
 
-   return JOBX(emit_fragment_job)(batch, pfb);
+   JOBX(emit_fragment_job)(batch, pfb);
 }
 
 #define DEFINE_CASE(c)                                                         \
