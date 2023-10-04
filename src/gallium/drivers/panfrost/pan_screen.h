@@ -89,8 +89,9 @@ struct panfrost_vtable {
    void (*context_init)(struct panfrost_context *ctx);
    void (*context_cleanup)(struct panfrost_context *ctx);
 
-   /* Device-dependent initialization of a panfrost_batch */
+   /* Device-dependent initialization/cleanup of a panfrost_batch */
    void (*init_batch)(struct panfrost_batch *batch);
+   void (*cleanup_batch)(struct panfrost_batch *batch);
 
    /* Get blend shader */
    struct pan_blend_shader_variant *(*get_blend_shader)(

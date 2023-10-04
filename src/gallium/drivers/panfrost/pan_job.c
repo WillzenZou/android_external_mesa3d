@@ -118,12 +118,15 @@ static void
 panfrost_batch_cleanup(struct panfrost_context *ctx,
                        struct panfrost_batch *batch)
 {
+   struct panfrost_screen *screen = pan_screen(ctx->base.screen);
    struct panfrost_device *dev = pan_device(ctx->base.screen);
 
    assert(batch->seqnum);
 
    if (ctx->batch == batch)
       ctx->batch = NULL;
+
+   screen->vtbl.cleanup_batch(batch);
 
    unsigned batch_idx = panfrost_batch_idx(batch);
 
@@ -150,9 +153,6 @@ panfrost_batch_cleanup(struct panfrost_context *ctx,
    util_unreference_framebuffer_state(&batch->key);
 
    util_dynarray_fini(&batch->bos);
-
-   if (batch->ceu_builder != NULL)
-      free(batch->ceu_builder);
 
    memset(batch, 0, sizeof(*batch));
    BITSET_CLEAR(ctx->batches.active, batch_idx);

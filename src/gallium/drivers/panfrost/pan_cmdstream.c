@@ -4994,6 +4994,12 @@ ceu_alloc_queue(void *cookie)
 }
 
 static void
+csf_cleanup_batch(struct panfrost_batch *batch)
+{
+   free(batch->ceu_builder);
+}
+
+static void
 csf_init_batch(struct panfrost_batch *batch)
 {
    /* Allocate and bind the command queue */
@@ -5018,6 +5024,11 @@ csf_init_batch(struct panfrost_batch *batch)
    batch->tls = pan_pool_alloc_desc(&batch->pool.base, LOCAL_STORAGE);
 }
 #else
+static void
+jm_cleanup_batch(struct panfrost_batch *batch)
+{
+}
+
 static void
 jm_init_batch(struct panfrost_batch *batch)
 {
@@ -5260,6 +5271,7 @@ GENX(panfrost_cmdstream_screen_init)(struct panfrost_screen *screen)
    screen->vtbl.context_init = JOBX(init_context);
    screen->vtbl.context_cleanup = JOBX(cleanup_context);
    screen->vtbl.init_batch = JOBX(init_batch);
+   screen->vtbl.cleanup_batch = JOBX(cleanup_batch);
    screen->vtbl.get_blend_shader = GENX(pan_blend_get_shader_locked);
    screen->vtbl.init_polygon_list = init_polygon_list;
    screen->vtbl.get_compiler_options = GENX(pan_shader_get_compiler_options);
