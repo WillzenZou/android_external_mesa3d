@@ -547,4 +547,26 @@ ceu_store_state(ceu_builder *b, uint8_t signal_slot, ceu_index address,
    }
 }
 
+static inline void
+ceu_add64(ceu_builder *b, ceu_index dest, ceu_index src, uint32_t imm)
+{
+   ceu_emit(b, ADD_IMMEDIATE64, I)
+   {
+      I.destination = ceu_to_reg64(dest);
+      I.source = ceu_to_reg64(src);
+      I.immediate = imm;
+   }
+}
+
+static inline void
+ceu_add32(ceu_builder *b, ceu_index dest, ceu_index src, uint32_t imm)
+{
+   ceu_emit(b, ADD_IMMEDIATE32, I)
+   {
+      I.destination = ceu_to_reg32(dest);
+      I.source = ceu_to_reg32(src);
+      I.immediate = imm;
+   }
+}
+
 #endif /* PAN_ARCH >= 10 */
