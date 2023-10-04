@@ -3562,8 +3562,7 @@ panfrost_draw_emit_tiler(struct panfrost_batch *batch,
 
 static void
 jm_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
-              mali_ptr attribs, mali_ptr attrib_bufs, UNUSED unsigned start,
-              unsigned count)
+              mali_ptr attribs, mali_ptr attrib_bufs, unsigned count)
 {
    struct panfrost_ptr t = pan_pool_alloc_desc(&batch->pool.base, COMPUTE_JOB);
 
@@ -3613,13 +3612,12 @@ jm_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 static void
 csf_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
                UNUSED mali_ptr attribs, UNUSED mali_ptr attrib_bufs,
-               unsigned start, unsigned count)
+               unsigned count)
 {
    ceu_builder *b = batch->ceu_builder;
 
-   /* TODO: Indexing. Also, attribute_offset is a legacy feature..
-    */
-   ceu_move32_to(b, ceu_reg32(b, 32), start);
+   /* TODO: Indexing. Also, attribute_offset is a legacy feature.. */
+   ceu_move32_to(b, ceu_reg32(b, 32), batch->ctx->offset_start);
 
    /* Compute workgroup size */
    uint32_t wg_size[4];
@@ -3660,7 +3658,7 @@ csf_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 static void
 panfrost_launch_xfb(struct panfrost_batch *batch,
                     const struct pipe_draw_info *info, mali_ptr attribs,
-                    mali_ptr attrib_bufs, unsigned start, unsigned count)
+                    mali_ptr attrib_bufs, unsigned count)
 {
    struct panfrost_context *ctx = batch->ctx;
 
@@ -3699,7 +3697,7 @@ panfrost_launch_xfb(struct panfrost_batch *batch,
                               &batch->push_uniforms[PIPE_SHADER_VERTEX],
                               &batch->nr_push_uniforms[PIPE_SHADER_VERTEX]);
 
-   JOBX(launch_xfb)(batch, info, attribs, attrib_bufs, start, count);
+   JOBX(launch_xfb)(batch, info, attribs, attrib_bufs, count);
    batch->any_compute = true;
 
    ctx->uncompiled[PIPE_SHADER_VERTEX] = vs_uncompiled;
@@ -4066,7 +4064,7 @@ csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
    ceu_move64_to(b, ceu_reg64(b, 24), batch->tls.gpu);
 
    if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb)
-      panfrost_launch_xfb(batch, info, 0, 0, draw->start, draw->count);
+      panfrost_launch_xfb(batch, info, 0, 0, draw->count);
 
    /* Increment transform feedback offsets */
    panfrost_update_streamout_offsets(ctx);
@@ -4310,8 +4308,7 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 #endif
 
    if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb)
-      panfrost_launch_xfb(batch, info, attribs, attrib_bufs, draw->start,
-                          draw->count);
+      panfrost_launch_xfb(batch, info, attribs, attrib_bufs, draw->count);
 
    /* Increment transform feedback offsets */
    panfrost_update_streamout_offsets(ctx);
