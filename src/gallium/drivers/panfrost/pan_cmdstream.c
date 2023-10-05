@@ -4080,6 +4080,9 @@ csf_launch_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 
    ceu_builder *b = batch->csf.cs.builder;
 
+   if (batch->draw_count == 0)
+      ceu_vt_start(batch->csf.cs.builder);
+
    csf_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
                         panfrost_get_position_shader(batch, info));
 
@@ -4406,19 +4409,6 @@ panfrost_direct_draw(struct panfrost_batch *batch,
    batch->draw_count++;
 }
 
-#if PAN_USE_CSF
-static inline void
-csf_prepare_first_draw(struct panfrost_batch *batch)
-{
-   ceu_vt_start(batch->csf.cs.builder);
-}
-#else
-static inline void
-jm_prepare_first_draw(struct panfrost_batch *batch)
-{
-}
-#endif
-
 static void
 panfrost_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
                   unsigned drawid_offset,
@@ -4459,9 +4449,6 @@ panfrost_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
       ASSERTED bool succ = panfrost_compatible_batch_state(batch, points);
       assert(succ && "must be able to set state for a fresh batch");
    }
-
-   if (batch->draw_count == 0)
-      JOBX(prepare_first_draw)(batch);
 
    /* panfrost_batch_skip_rasterization reads
     * batch->scissor_culls_everything, which is set by
