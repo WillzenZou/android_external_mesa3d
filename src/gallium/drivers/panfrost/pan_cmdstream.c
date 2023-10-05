@@ -4979,8 +4979,8 @@ preload(struct panfrost_batch *batch, struct pan_fb_info *fb)
 }
 
 #if PAN_USE_CSF
-struct ceu_queue
-ceu_alloc_queue(void *cookie)
+static struct ceu_queue
+csf_alloc_ceu_queue(void *cookie)
 {
    assert(cookie && "Self-contained queues can't be extended.");
 
@@ -5008,11 +5008,12 @@ static void
 csf_init_batch(struct panfrost_batch *batch)
 {
    /* Allocate and bind the command queue */
-   struct ceu_queue queue = ceu_alloc_queue(batch);
+   struct ceu_queue queue = csf_alloc_ceu_queue(batch);
 
    /* Setup the queue builder */
    batch->csf.cs.builder = malloc(sizeof(ceu_builder));
-   ceu_builder_init(batch->csf.cs.builder, 96, batch, queue);
+   ceu_builder_init(batch->csf.cs.builder, 96, batch, csf_alloc_ceu_queue,
+                    queue);
    ceu_require_all(batch->csf.cs.builder);
 
    /* Set up entries */
@@ -5554,7 +5555,7 @@ csf_init_context(struct panfrost_context *ctx)
       .capacity = panfrost_bo_size(cs_bo) / sizeof(uint64_t),
    };
    ceu_builder b;
-   ceu_builder_init(&b, 96, NULL, init_queue);
+   ceu_builder_init(&b, 96, NULL, NULL, init_queue);
    ceu_index heap = ceu_reg64(&b, 72);
    ceu_move64_to(&b, heap, thc.tiler_heap_ctx_gpu_va);
    ceu_heap_set(&b, heap);

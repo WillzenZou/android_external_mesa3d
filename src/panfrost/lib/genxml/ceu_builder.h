@@ -46,8 +46,6 @@ struct ceu_queue {
    size_t capacity;
 };
 
-struct ceu_queue ceu_alloc_queue(void *cookie);
-
 typedef struct ceu_builder {
    /* Initial (root) queue */
    struct ceu_queue root;
@@ -72,16 +70,22 @@ typedef struct ceu_builder {
 
    /* Cookie passed back to ceu_alloc_queue for caller use */
    void *cookie;
+
+   /* CS chunk allocator. */
+   struct ceu_queue (*alloc)(void *cookie);
 } ceu_builder;
 
 static void
 ceu_builder_init(struct ceu_builder *b, uint8_t nr_registers, void *cookie,
-                 struct ceu_queue root)
+                 struct ceu_queue (*alloc)(void *cookie), struct ceu_queue root)
 {
-   *b = (struct ceu_builder){.nr_registers = nr_registers,
-                             .cookie = cookie,
-                             .queue = root,
-                             .root = root};
+   *b = (struct ceu_builder){
+      .nr_registers = nr_registers,
+      .cookie = cookie,
+      .queue = root,
+      .root = root,
+      .alloc = alloc,
+   };
 }
 
 /*
@@ -204,7 +208,7 @@ ceu_alloc(ceu_builder *b)
     */
    if (unlikely((b->queue_size + 4) > b->queue.capacity)) {
       /* Now, allocate a new queue */
-      struct ceu_queue newq = ceu_alloc_queue(b->cookie);
+      struct ceu_queue newq = b->alloc(b->cookie);
 
       uint64_t *ptr = b->queue.cpu + (b->queue_size++);
 
