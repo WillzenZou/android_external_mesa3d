@@ -2485,16 +2485,16 @@ pan_emit_special_input(struct mali_attribute_buffer_packed *out,
 
 static void
 panfrost_emit_varying_descriptor(struct panfrost_batch *batch,
-                                 unsigned vertex_count, mali_ptr *vs_attribs,
-                                 mali_ptr *fs_attribs, mali_ptr *buffers,
-                                 unsigned *buffer_count, mali_ptr *position,
-                                 mali_ptr *psiz, bool point_coord_replace)
+                                 unsigned vertex_count,
+                                 bool point_coord_replace)
 {
    struct panfrost_context *ctx = batch->ctx;
    struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
    struct panfrost_compiled_shader *fs = ctx->prog[PIPE_SHADER_FRAGMENT];
 
    uint16_t point_coord_mask = 0;
+
+   memset(&batch->varyings, 0, sizeof(batch->varyings));
 
 #if PAN_ARCH <= 5
    struct pipe_rasterizer_state *rast = &ctx->rasterizer->base;
@@ -2526,8 +2526,7 @@ panfrost_emit_varying_descriptor(struct panfrost_batch *batch,
    struct mali_attribute_buffer_packed *varyings =
       (struct mali_attribute_buffer_packed *)T.cpu;
 
-   if (buffer_count)
-      *buffer_count = count;
+   batch->varyings.nr_bufs = count;
 
 #if PAN_ARCH >= 6
    /* Suppress prefetch on Bifrost */
@@ -2546,12 +2545,12 @@ panfrost_emit_varying_descriptor(struct panfrost_batch *batch,
    }
 
    /* fp32 vec4 gl_Position */
-   *position = panfrost_emit_varyings(
+   batch->varyings.pos = panfrost_emit_varyings(
       batch, &varyings[pan_varying_index(present, PAN_VARY_POSITION)],
       sizeof(float) * 4, vertex_count);
 
    if (present & BITFIELD_BIT(PAN_VARY_PSIZ)) {
-      *psiz = panfrost_emit_varyings(
+      batch->varyings.psiz = panfrost_emit_varyings(
          batch, &varyings[pan_varying_index(present, PAN_VARY_PSIZ)], 2,
          vertex_count);
    }
@@ -2568,9 +2567,9 @@ panfrost_emit_varying_descriptor(struct panfrost_batch *batch,
                           MALI_ATTRIBUTE_SPECIAL_FRAG_COORD);
 #endif
 
-   *buffers = T.gpu;
-   *vs_attribs = linkage->producer;
-   *fs_attribs = linkage->consumer;
+   batch->varyings.bufs = T.gpu;
+   batch->varyings.vs = linkage->producer;
+   batch->varyings.fs = linkage->consumer;
 }
 
 /*
@@ -2864,16 +2863,14 @@ pan_emit_draw_descs(struct panfrost_batch *batch, struct MALI_DRAW *d,
 }
 
 static void
-panfrost_draw_emit_vertex_section(struct panfrost_batch *batch,
-                                  mali_ptr vs_vary, mali_ptr varyings,
-                                  void *section)
+panfrost_draw_emit_vertex_section(struct panfrost_batch *batch, void *section)
 {
    pan_pack(section, DRAW, cfg) {
       cfg.state = batch->rsd[PIPE_SHADER_VERTEX];
       cfg.attributes = batch->attribs[PIPE_SHADER_VERTEX];
       cfg.attribute_buffers = batch->attrib_bufs[PIPE_SHADER_VERTEX];
-      cfg.varyings = vs_vary;
-      cfg.varying_buffers = vs_vary ? varyings : 0;
+      cfg.varyings = batch->varyings.vs;
+      cfg.varying_buffers = cfg.varyings ? batch->varyings.bufs : 0;
       cfg.thread_storage = batch->tls.gpu;
       pan_emit_draw_descs(batch, &cfg, PIPE_SHADER_VERTEX);
    }
@@ -2882,8 +2879,7 @@ panfrost_draw_emit_vertex_section(struct panfrost_batch *batch,
 static void
 panfrost_draw_emit_vertex(struct panfrost_batch *batch,
                           const struct pipe_draw_info *info,
-                          void *invocation_template, mali_ptr vs_vary,
-                          mali_ptr varyings, void *job)
+                          void *invocation_template, void *job)
 {
    void *section = pan_section_ptr(job, COMPUTE_JOB, INVOCATION);
    memcpy(section, invocation_template, pan_size(INVOCATION));
@@ -2893,7 +2889,7 @@ panfrost_draw_emit_vertex(struct panfrost_batch *batch,
    }
 
    section = pan_section_ptr(job, COMPUTE_JOB, DRAW);
-   panfrost_draw_emit_vertex_section(batch, vs_vary, varyings, section);
+   panfrost_draw_emit_vertex_section(batch, section);
 }
 #endif
 
@@ -3269,8 +3265,7 @@ csf_emit_shader_regs(struct panfrost_batch *batch, enum pipe_shader_type stage,
 
 static void
 panfrost_emit_draw(void *out, struct panfrost_batch *batch, bool fs_required,
-                   enum mesa_prim prim, mali_ptr pos, mali_ptr fs_vary,
-                   mali_ptr varyings)
+                   enum mesa_prim prim)
 {
    struct panfrost_context *ctx = batch->ctx;
    struct pipe_rasterizer_state *rast = &ctx->rasterizer->base;
@@ -3399,13 +3394,13 @@ panfrost_emit_draw(void *out, struct panfrost_batch *batch, bool fs_required,
          cfg.overdraw_alpha1 = true;
       }
 #else
-      cfg.position = pos;
+      cfg.position = batch->varyings.pos;
       cfg.state = batch->rsd[PIPE_SHADER_FRAGMENT];
       cfg.attributes = batch->attribs[PIPE_SHADER_FRAGMENT];
       cfg.attribute_buffers = batch->attrib_bufs[PIPE_SHADER_FRAGMENT];
       cfg.viewport = batch->viewport;
-      cfg.varyings = fs_vary;
-      cfg.varying_buffers = fs_vary ? varyings : 0;
+      cfg.varyings = batch->varyings.fs;
+      cfg.varying_buffers = cfg.varyings ? batch->varyings.bufs : 0;
       cfg.thread_storage = batch->tls.gpu;
 
       /* For all primitives but lines DRAW.flat_shading_vertex must
@@ -3513,7 +3508,7 @@ panfrost_emit_malloc_vertex(struct panfrost_batch *batch,
    }
 
    panfrost_emit_draw(pan_section_ptr(job, MALLOC_VERTEX_JOB, DRAW), batch,
-                      fs_required, u_reduced_prim(info->mode), 0, 0, 0);
+                      fs_required, u_reduced_prim(info->mode));
 
    pan_section_pack(job, MALLOC_VERTEX_JOB, POSITION, cfg) {
       panfrost_emit_shader(batch, &cfg, PIPE_SHADER_VERTEX,
@@ -3540,9 +3535,8 @@ static void
 panfrost_draw_emit_tiler(struct panfrost_batch *batch,
                          const struct pipe_draw_info *info,
                          const struct pipe_draw_start_count_bias *draw,
-                         void *invocation_template, mali_ptr fs_vary,
-                         mali_ptr varyings, mali_ptr pos, mali_ptr psiz,
-                         bool secondary_shader, void *job)
+                         void *invocation_template, bool secondary_shader,
+                         void *job)
 {
    struct panfrost_context *ctx = batch->ctx;
 
@@ -3564,10 +3558,10 @@ panfrost_draw_emit_tiler(struct panfrost_batch *batch,
       ;
 #endif
 
-   panfrost_emit_draw(pan_section_ptr(job, TILER_JOB, DRAW), batch, true, prim,
-                      pos, fs_vary, varyings);
+   panfrost_emit_draw(pan_section_ptr(job, TILER_JOB, DRAW), batch, true, prim);
 
-   panfrost_emit_primitive_size(ctx, prim == MESA_PRIM_POINTS, psiz, prim_size);
+   panfrost_emit_primitive_size(ctx, prim == MESA_PRIM_POINTS,
+                                batch->varyings.psiz, prim_size);
 }
 #endif
 
@@ -3609,7 +3603,13 @@ jm_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
                                      info->instance_count, 1, 1, 1,
                                      PAN_ARCH <= 5, false);
 
-   panfrost_draw_emit_vertex(batch, info, &invocation, 0, 0, t.cpu);
+   /* No varyings on XFB compute jobs. */
+   mali_ptr saved_vs_varyings = batch->varyings.vs;
+
+   batch->varyings.vs = 0;
+   panfrost_draw_emit_vertex(batch, info, &invocation, t.cpu);
+   batch->varyings.vs = saved_vs_varyings;
+
 #endif
    enum mali_job_type job_type = MALI_JOB_TYPE_COMPUTE;
 #if PAN_ARCH <= 5
@@ -4299,14 +4299,6 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
          cfg.thread_group_split = MALI_SPLIT_MIN_EFFICIENT;
       }
    }
-
-   /* Emit all sort of descriptors. */
-   mali_ptr varyings = 0, vs_vary = 0, fs_vary = 0, pos = 0, psiz = 0;
-
-   panfrost_emit_varying_descriptor(
-      batch, ctx->padded_count * ctx->instance_count, &vs_vary, &fs_vary,
-      &varyings, NULL, &pos, &psiz, info->mode == MESA_PRIM_POINTS);
-
 #endif
 
    UNUSED struct panfrost_ptr tiler, vertex;
@@ -4334,12 +4326,12 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
                     false);
 #else
    /* Fire off the draw itself */
-   panfrost_draw_emit_tiler(batch, info, draw, &invocation, fs_vary, varyings,
-                            pos, psiz, secondary_shader, tiler.cpu);
+   panfrost_draw_emit_tiler(batch, info, draw, &invocation, secondary_shader,
+                            tiler.cpu);
    if (idvs) {
 #if PAN_ARCH >= 6
       panfrost_draw_emit_vertex_section(
-         batch, vs_vary, varyings,
+         batch,
          pan_section_ptr(tiler.cpu, INDEXED_VERTEX_JOB, VERTEX_DRAW));
 
       panfrost_add_job(&batch->pool.base, &batch->jm.jobs.vtc_jc,
@@ -4347,8 +4339,7 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
                        false);
 #endif
    } else {
-      panfrost_draw_emit_vertex(batch, info, &invocation, vs_vary, varyings,
-                                vertex.cpu);
+      panfrost_draw_emit_vertex(batch, info, &invocation, vertex.cpu);
       panfrost_emit_vertex_tiler_jobs(batch, &vertex, &tiler);
    }
 #endif
@@ -4404,6 +4395,12 @@ panfrost_direct_draw(struct panfrost_batch *batch,
     */
    if (panfrost_batch_skip_rasterization(batch))
       return;
+
+#if PAN_ARCH <= 7
+   panfrost_emit_varying_descriptor(batch,
+                                    ctx->padded_count * ctx->instance_count,
+                                    info->mode == MESA_PRIM_POINTS);
+#endif
 
    JOBX(emit_draw)(batch, info, drawid_offset, draw, vertex_count);
    batch->draw_count++;
