@@ -3622,6 +3622,8 @@ csf_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 {
    ceu_builder *b = batch->ceu_builder;
 
+   ceu_move64_to(b, ceu_reg64(b, 24), batch->tls.gpu);
+
    /* TODO: Indexing. Also, attribute_offset is a legacy feature.. */
    ceu_move32_to(b, ceu_reg32(b, 32), batch->ctx->offset_start);
 
@@ -4064,9 +4066,7 @@ csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 
    assert(idvs && "IDVS required for CSF");
 
-   /* Same register for XFB (compute) and IDVS */
    ceu_builder *b = batch->ceu_builder;
-   ceu_move64_to(b, ceu_reg64(b, 24), batch->tls.gpu);
 
    if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb)
       panfrost_launch_xfb(batch, info, draw->count);
