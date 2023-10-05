@@ -4063,10 +4063,10 @@ panfrost_draw_get_vertex_count(struct panfrost_batch *batch,
 
 #if PAN_USE_CSF
 static void
-csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
-              unsigned drawid_offset,
-              const struct pipe_draw_start_count_bias *draw,
-              unsigned vertex_count)
+csf_launch_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
+                unsigned drawid_offset,
+                const struct pipe_draw_start_count_bias *draw,
+                unsigned vertex_count)
 {
    struct panfrost_context *ctx = batch->ctx;
    struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
@@ -4272,10 +4272,10 @@ csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 }
 #else // PAN_USE_CSF
 static void
-jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
-             unsigned drawid_offset,
-             const struct pipe_draw_start_count_bias *draw,
-             unsigned vertex_count)
+jm_launch_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
+               unsigned drawid_offset,
+               const struct pipe_draw_start_count_bias *draw,
+               unsigned vertex_count)
 {
    struct panfrost_context *ctx = batch->ctx;
    struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
@@ -4402,7 +4402,7 @@ panfrost_direct_draw(struct panfrost_batch *batch,
                                     info->mode == MESA_PRIM_POINTS);
 #endif
 
-   JOBX(emit_draw)(batch, info, drawid_offset, draw, vertex_count);
+   JOBX(launch_draw)(batch, info, drawid_offset, draw, vertex_count);
    batch->draw_count++;
 }
 
