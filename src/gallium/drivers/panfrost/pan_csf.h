@@ -25,6 +25,8 @@
 #ifndef __PAN_CSF_H__
 #define __PAN_CSF_H__
 
+#include "compiler/shader_enums.h"
+
 #include "pan_bo.h"
 
 struct ceu_builder;
@@ -35,7 +37,8 @@ struct panfrost_csf_batch {
       /* CS builder. */
       struct ceu_builder *builder;
 
-      /* CS state, written through the CS, and checked when PAN_MESA_DEBUG=sync. */
+      /* CS state, written through the CS, and checked when PAN_MESA_DEBUG=sync.
+       */
       struct panfrost_ptr state;
    } cs;
 };
@@ -51,5 +54,38 @@ struct panfrost_csf_context {
    /* Temporary geometry buffer. Used as a FIFO by the tiler. */
    struct panfrost_bo *tmp_geom_bo;
 };
+
+#if defined(PAN_ARCH) && PAN_ARCH >= 10
+
+#include "genxml/gen_macros.h"
+
+struct panfrost_batch;
+struct panfrost_context;
+struct pan_fb_info;
+struct pipe_draw_info;
+struct pipe_grid_info;
+struct pipe_draw_start_count_bias;
+
+void GENX(csf_init_context)(struct panfrost_context *ctx);
+void GENX(csf_cleanup_context)(struct panfrost_context *ctx);
+
+void GENX(csf_init_batch)(struct panfrost_batch *batch);
+void GENX(csf_cleanup_batch)(struct panfrost_batch *batch);
+int GENX(csf_submit_batch)(struct panfrost_batch *batch);
+
+void GENX(csf_emit_fragment_job)(struct panfrost_batch *batch,
+                                 const struct pan_fb_info *pfb);
+void GENX(csf_emit_batch_end)(struct panfrost_batch *batch);
+void GENX(csf_launch_xfb)(struct panfrost_batch *batch,
+                          const struct pipe_draw_info *info, unsigned count);
+void GENX(csf_launch_grid)(struct panfrost_batch *batch,
+                           const struct pipe_grid_info *info);
+void GENX(csf_launch_draw)(struct panfrost_batch *batch,
+                           const struct pipe_draw_info *info,
+                           unsigned drawid_offset,
+                           const struct pipe_draw_start_count_bias *draw,
+                           unsigned vertex_count);
+
+#endif /* PAN_ARCH >= 10 */
 
 #endif /* __PAN_CSF_H__ */

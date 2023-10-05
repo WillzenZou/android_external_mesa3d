@@ -57,9 +57,14 @@ panfrost_versions = ['4', '5', '6', '7', '9', '10']
 libpanfrost_versions = []
 
 foreach ver : panfrost_versions
+  files_panfrost_vx = ['pan_cmdstream.c', pan_packers]
+  if ver in ['4', '5', '6', '7', '9']
+    files_panfrost_vx += ['pan_jm.c']
+  elif ver in ['10']
+    files_panfrost_vx += ['pan_csf.c']
+  endif
   libpanfrost_versions += static_library(
-    'panfrost-v' + ver,
-    ['pan_cmdstream.c', pan_packers],
+    'panfrost-v' + ver, files_panfrost_vx,
     include_directories : panfrost_includes,
     c_args : ['-DPAN_ARCH=' + ver],
     gnu_symbol_visibility : 'hidden',

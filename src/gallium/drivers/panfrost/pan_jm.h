@@ -38,7 +38,58 @@ struct panfrost_jm_batch {
    } jobs;
 };
 
-struct panfrost_jm_context {
-};
+struct panfrost_jm_context {};
+
+#if defined(PAN_ARCH) && PAN_ARCH < 10
+
+#include "genxml/gen_macros.h"
+
+struct panfrost_batch;
+struct panfrost_context;
+struct pan_fb_info;
+struct pipe_draw_info;
+struct pipe_grid_info;
+struct pipe_draw_start_count_bias;
+
+static inline void
+GENX(jm_init_context)(struct panfrost_context *ctx)
+{
+}
+
+static inline void
+GENX(jm_cleanup_context)(struct panfrost_context *ctx)
+{
+}
+
+void GENX(jm_init_batch)(struct panfrost_batch *batch);
+
+static inline void
+GENX(jm_cleanup_batch)(struct panfrost_batch *batch)
+{
+}
+
+static inline void
+GENX(jm_emit_batch_end)(struct panfrost_batch *batch)
+{
+}
+
+int GENX(jm_submit_batch)(struct panfrost_batch *batch);
+
+void GENX(jm_emit_fragment_job)(struct panfrost_batch *batch,
+                                const struct pan_fb_info *pfb);
+
+void GENX(jm_launch_xfb)(struct panfrost_batch *batch,
+                         const struct pipe_draw_info *info, unsigned count);
+
+void GENX(jm_launch_grid)(struct panfrost_batch *batch,
+                          const struct pipe_grid_info *info);
+
+void GENX(jm_launch_draw)(struct panfrost_batch *batch,
+                          const struct pipe_draw_info *info,
+                          unsigned drawid_offset,
+                          const struct pipe_draw_start_count_bias *draw,
+                          unsigned vertex_count);
+
+#endif /* PAN_ARCH < 10 */
 
 #endif
