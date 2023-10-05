@@ -3791,7 +3791,7 @@ csf_launch_grid(struct panfrost_batch *batch, const struct pipe_grid_info *info)
    csf_emit_shader_regs(batch, PIPE_SHADER_COMPUTE,
                         batch->rsd[PIPE_SHADER_COMPUTE]);
 
-   ceu_move64_to(b, ceu_reg64(b, 24), panfrost_emit_shared_memory(batch, info));
+   ceu_move64_to(b, ceu_reg64(b, 24), batch->tls.gpu);
 
    /* Global attribute offset */
    ceu_move32_to(b, ceu_reg32(b, 32), 0);
@@ -3887,7 +3887,7 @@ jm_launch_grid(struct panfrost_batch *batch, const struct pipe_grid_info *info)
       cfg.state = batch->rsd[PIPE_SHADER_COMPUTE];
       cfg.attributes = panfrost_emit_image_attribs(
          batch, &cfg.attribute_buffers, PIPE_SHADER_COMPUTE);
-      cfg.thread_storage = panfrost_emit_shared_memory(batch, info);
+      cfg.thread_storage = batch->tls.gpu;
       cfg.uniform_buffers = batch->uniform_buffers[PIPE_SHADER_COMPUTE];
       cfg.push_uniforms = batch->push_uniforms[PIPE_SHADER_COMPUTE];
       cfg.textures = batch->textures[PIPE_SHADER_COMPUTE];
@@ -3908,7 +3908,7 @@ jm_launch_grid(struct panfrost_batch *batch, const struct pipe_grid_info *info)
 
       panfrost_emit_shader(batch, &cfg.compute, PIPE_SHADER_COMPUTE,
                            batch->rsd[PIPE_SHADER_COMPUTE],
-                           panfrost_emit_shared_memory(batch, info));
+                           batch->tls.gpu);
 
       /* Workgroups may be merged if the shader does not use barriers
        * or shared memory. This condition is checked against the
@@ -3992,8 +3992,16 @@ panfrost_launch_grid(struct pipe_context *pipe,
 
    panfrost_update_shader_state(batch, PIPE_SHADER_COMPUTE);
 
+   /* We want our compute thread descriptor to be per job.
+    * Save the global one, and restore it when we're done emitting
+    * the job.
+    */
+   mali_ptr saved_tls = batch->tls.gpu;
+
+   batch->tls.gpu = panfrost_emit_shared_memory(batch, info);
    JOBX(launch_grid)(batch, info);
    batch->any_compute = true;
+   batch->tls.gpu = saved_tls;
 
    panfrost_flush_all_batches(ctx, "Launch grid post-barrier");
 }
