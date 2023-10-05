@@ -2865,13 +2865,12 @@ pan_emit_draw_descs(struct panfrost_batch *batch, struct MALI_DRAW *d,
 static void
 panfrost_draw_emit_vertex_section(struct panfrost_batch *batch,
                                   mali_ptr vs_vary, mali_ptr varyings,
-                                  mali_ptr attribs, mali_ptr attrib_bufs,
                                   void *section)
 {
    pan_pack(section, DRAW, cfg) {
       cfg.state = batch->rsd[PIPE_SHADER_VERTEX];
-      cfg.attributes = attribs;
-      cfg.attribute_buffers = attrib_bufs;
+      cfg.attributes = batch->attribs[PIPE_SHADER_VERTEX];
+      cfg.attribute_buffers = batch->attrib_bufs[PIPE_SHADER_VERTEX];
       cfg.varyings = vs_vary;
       cfg.varying_buffers = vs_vary ? varyings : 0;
       cfg.thread_storage = batch->tls.gpu;
@@ -2883,8 +2882,7 @@ static void
 panfrost_draw_emit_vertex(struct panfrost_batch *batch,
                           const struct pipe_draw_info *info,
                           void *invocation_template, mali_ptr vs_vary,
-                          mali_ptr varyings, mali_ptr attribs,
-                          mali_ptr attrib_bufs, void *job)
+                          mali_ptr varyings, void *job)
 {
    void *section = pan_section_ptr(job, COMPUTE_JOB, INVOCATION);
    memcpy(section, invocation_template, pan_size(INVOCATION));
@@ -2894,8 +2892,7 @@ panfrost_draw_emit_vertex(struct panfrost_batch *batch,
    }
 
    section = pan_section_ptr(job, COMPUTE_JOB, DRAW);
-   panfrost_draw_emit_vertex_section(batch, vs_vary, varyings, attribs,
-                                     attrib_bufs, section);
+   panfrost_draw_emit_vertex_section(batch, vs_vary, varyings, section);
 }
 #endif
 
@@ -3573,7 +3570,7 @@ panfrost_draw_emit_tiler(struct panfrost_batch *batch,
 
 static void
 jm_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
-              mali_ptr attribs, mali_ptr attrib_bufs, unsigned count)
+              unsigned count)
 {
    struct panfrost_ptr t = pan_pool_alloc_desc(&batch->pool.base, COMPUTE_JOB);
 
@@ -3607,8 +3604,7 @@ jm_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
                                      info->instance_count, 1, 1, 1,
                                      PAN_ARCH <= 5, false);
 
-   panfrost_draw_emit_vertex(batch, info, &invocation, 0, 0, attribs,
-                             attrib_bufs, t.cpu);
+   panfrost_draw_emit_vertex(batch, info, &invocation, 0, 0, t.cpu);
 #endif
    enum mali_job_type job_type = MALI_JOB_TYPE_COMPUTE;
 #if PAN_ARCH <= 5
@@ -3622,7 +3618,6 @@ jm_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 
 static void
 csf_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
-               UNUSED mali_ptr attribs, UNUSED mali_ptr attrib_bufs,
                unsigned count)
 {
    ceu_builder *b = batch->ceu_builder;
@@ -3668,8 +3663,7 @@ csf_launch_xfb(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 
 static void
 panfrost_launch_xfb(struct panfrost_batch *batch,
-                    const struct pipe_draw_info *info, mali_ptr attribs,
-                    mali_ptr attrib_bufs, unsigned count)
+                    const struct pipe_draw_info *info, unsigned count)
 {
    struct panfrost_context *ctx = batch->ctx;
 
@@ -3708,7 +3702,7 @@ panfrost_launch_xfb(struct panfrost_batch *batch,
                               &batch->push_uniforms[PIPE_SHADER_VERTEX],
                               &batch->nr_push_uniforms[PIPE_SHADER_VERTEX]);
 
-   JOBX(launch_xfb)(batch, info, attribs, attrib_bufs, count);
+   JOBX(launch_xfb)(batch, info, count);
    batch->any_compute = true;
 
    ctx->uncompiled[PIPE_SHADER_VERTEX] = vs_uncompiled;
@@ -4075,7 +4069,7 @@ csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
    ceu_move64_to(b, ceu_reg64(b, 24), batch->tls.gpu);
 
    if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb)
-      panfrost_launch_xfb(batch, info, 0, 0, draw->count);
+      panfrost_launch_xfb(batch, info, draw->count);
 
    /* Increment transform feedback offsets */
    panfrost_update_streamout_offsets(ctx);
@@ -4288,8 +4282,6 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
    struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
    bool secondary_shader = vs->info.vs.secondary_enable;
    bool idvs = vs->info.vs.idvs;
-   mali_ptr attrib_bufs = batch->attrib_bufs[PIPE_SHADER_VERTEX];
-   mali_ptr attribs = batch->attribs[PIPE_SHADER_VERTEX];
 
 #if PAN_ARCH <= 7
    struct mali_invocation_packed invocation;
@@ -4319,7 +4311,7 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 #endif
 
    if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb)
-      panfrost_launch_xfb(batch, info, attribs, attrib_bufs, draw->count);
+      panfrost_launch_xfb(batch, info, draw->count);
 
    /* Increment transform feedback offsets */
    panfrost_update_streamout_offsets(ctx);
@@ -4361,7 +4353,7 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
    if (idvs) {
 #if PAN_ARCH >= 6
       panfrost_draw_emit_vertex_section(
-         batch, vs_vary, varyings, attribs, attrib_bufs,
+         batch, vs_vary, varyings,
          pan_section_ptr(tiler.cpu, INDEXED_VERTEX_JOB, VERTEX_DRAW));
 
       panfrost_add_job(&batch->pool.base, &batch->scoreboard,
@@ -4370,7 +4362,7 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 #endif
    } else {
       panfrost_draw_emit_vertex(batch, info, &invocation, vs_vary, varyings,
-                                attribs, attrib_bufs, vertex.cpu);
+                                vertex.cpu);
       panfrost_emit_vertex_tiler_jobs(batch, &vertex, &tiler);
    }
 #endif
