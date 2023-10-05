@@ -4068,18 +4068,6 @@ csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 
    ceu_builder *b = batch->ceu_builder;
 
-   if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb)
-      panfrost_launch_xfb(batch, info, draw->count);
-
-   /* Increment transform feedback offsets */
-   panfrost_update_streamout_offsets(ctx);
-
-   /* Any side effects must be handled by the XFB shader, so we only need
-    * to run vertex shaders if we need rasterization.
-    */
-   if (panfrost_batch_skip_rasterization(batch))
-      return;
-
    csf_emit_shader_regs(batch, PIPE_SHADER_VERTEX,
                         panfrost_get_position_shader(batch, info));
 
@@ -4269,7 +4257,6 @@ csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
    ceu_run_idvs(b, pan_draw_mode(info->mode),
                 panfrost_translate_index_size(info->index_size),
                 secondary_shader);
-   batch->draw_count++;
 }
 #else // PAN_USE_CSF
 static void
@@ -4309,18 +4296,6 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
       &varyings, NULL, &pos, &psiz, info->mode == MESA_PRIM_POINTS);
 
 #endif
-
-   if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb)
-      panfrost_launch_xfb(batch, info, draw->count);
-
-   /* Increment transform feedback offsets */
-   panfrost_update_streamout_offsets(ctx);
-
-   /* Any side effects must be handled by the XFB shader, so we only need
-    * to run vertex shaders if we need rasterization.
-    */
-   if (panfrost_batch_skip_rasterization(batch))
-      return;
 
    UNUSED struct panfrost_ptr tiler, vertex;
 
@@ -4366,7 +4341,6 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
       panfrost_emit_vertex_tiler_jobs(batch, &vertex, &tiler);
    }
 #endif
-   batch->draw_count++;
 }
 #endif // PAN_USE_CSF
 
@@ -4409,7 +4383,20 @@ panfrost_direct_draw(struct panfrost_batch *batch,
    panfrost_update_shader_state(batch, PIPE_SHADER_FRAGMENT);
    panfrost_clean_state_3d(ctx);
 
+   if (ctx->uncompiled[PIPE_SHADER_VERTEX]->xfb)
+      panfrost_launch_xfb(batch, info, draw->count);
+
+   /* Increment transform feedback offsets */
+   panfrost_update_streamout_offsets(ctx);
+
+   /* Any side effects must be handled by the XFB shader, so we only need
+    * to run vertex shaders if we need rasterization.
+    */
+   if (panfrost_batch_skip_rasterization(batch))
+      return;
+
    JOBX(emit_draw)(batch, info, drawid_offset, draw, indices, vertex_count);
+   batch->draw_count++;
 }
 
 #if PAN_USE_CSF
