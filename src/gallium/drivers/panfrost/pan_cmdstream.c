@@ -3113,11 +3113,12 @@ pan_allow_rotating_primitives(const struct panfrost_compiled_shader *fs,
  * jobs and Valhall IDVS jobs
  */
 static void
-panfrost_emit_primitive(struct panfrost_context *ctx,
+panfrost_emit_primitive(struct panfrost_batch *batch,
                         const struct pipe_draw_info *info,
                         const struct pipe_draw_start_count_bias *draw,
-                        mali_ptr indices, bool secondary_shader, void *out)
+                        bool secondary_shader, void *out)
 {
+   struct panfrost_context *ctx = batch->ctx;
    UNUSED struct pipe_rasterizer_state *rast = &ctx->rasterizer->base;
 
    pan_pack(out, PRIMITIVE, cfg) {
@@ -3177,7 +3178,7 @@ panfrost_emit_primitive(struct panfrost_context *ctx,
          cfg.base_vertex_offset = draw->index_bias - ctx->offset_start;
 
 #if PAN_ARCH <= 7
-         cfg.indices = indices;
+         cfg.indices = batch->indices;
 #endif
       }
 
@@ -3462,7 +3463,7 @@ static void
 panfrost_emit_malloc_vertex(struct panfrost_batch *batch,
                             const struct pipe_draw_info *info,
                             const struct pipe_draw_start_count_bias *draw,
-                            mali_ptr indices, bool secondary_shader, void *job)
+                            bool secondary_shader, void *job)
 {
    struct panfrost_context *ctx = batch->ctx;
    struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
@@ -3476,7 +3477,7 @@ panfrost_emit_malloc_vertex(struct panfrost_batch *batch,
     */
    secondary_shader &= fs_required;
 
-   panfrost_emit_primitive(ctx, info, draw, 0, secondary_shader,
+   panfrost_emit_primitive(batch, info, draw, secondary_shader,
                            pan_section_ptr(job, MALLOC_VERTEX_JOB, PRIMITIVE));
 
    pan_section_pack(job, MALLOC_VERTEX_JOB, INSTANCE_COUNT, cfg) {
@@ -3508,7 +3509,7 @@ panfrost_emit_malloc_vertex(struct panfrost_batch *batch,
       pan_section_ptr(job, MALLOC_VERTEX_JOB, PRIMITIVE_SIZE));
 
    pan_section_pack(job, MALLOC_VERTEX_JOB, INDICES, cfg) {
-      cfg.address = indices;
+      cfg.address = batch->indices;
    }
 
    panfrost_emit_draw(pan_section_ptr(job, MALLOC_VERTEX_JOB, DRAW), batch,
@@ -3539,16 +3540,16 @@ static void
 panfrost_draw_emit_tiler(struct panfrost_batch *batch,
                          const struct pipe_draw_info *info,
                          const struct pipe_draw_start_count_bias *draw,
-                         void *invocation_template, mali_ptr indices,
-                         mali_ptr fs_vary, mali_ptr varyings, mali_ptr pos,
-                         mali_ptr psiz, bool secondary_shader, void *job)
+                         void *invocation_template, mali_ptr fs_vary,
+                         mali_ptr varyings, mali_ptr pos, mali_ptr psiz,
+                         bool secondary_shader, void *job)
 {
    struct panfrost_context *ctx = batch->ctx;
 
    void *section = pan_section_ptr(job, TILER_JOB, INVOCATION);
    memcpy(section, invocation_template, pan_size(INVOCATION));
 
-   panfrost_emit_primitive(ctx, info, draw, indices, secondary_shader,
+   panfrost_emit_primitive(batch, info, draw, secondary_shader,
                            pan_section_ptr(job, TILER_JOB, PRIMITIVE));
 
    void *prim_size = pan_section_ptr(job, TILER_JOB, PRIMITIVE_SIZE);
@@ -3911,8 +3912,7 @@ jm_launch_grid(struct panfrost_batch *batch, const struct pipe_grid_info *info)
       cfg.workgroup_count_z = num_wg[2];
 
       panfrost_emit_shader(batch, &cfg.compute, PIPE_SHADER_COMPUTE,
-                           batch->rsd[PIPE_SHADER_COMPUTE],
-                           batch->tls.gpu);
+                           batch->rsd[PIPE_SHADER_COMPUTE], batch->tls.gpu);
 
       /* Workgroups may be merged if the shader does not use barriers
        * or shared memory. This condition is checked against the
@@ -4014,22 +4014,22 @@ static unsigned
 panfrost_draw_get_vertex_count(struct panfrost_batch *batch,
                                const struct pipe_draw_info *info,
                                const struct pipe_draw_start_count_bias *draw,
-                               mali_ptr *indices, bool idvs)
+                               bool idvs)
 {
    struct panfrost_context *ctx = batch->ctx;
    unsigned vertex_count = ctx->vertex_count;
    unsigned min_index = 0, max_index = 0;
 
-   *indices = 0;
+   batch->indices = 0;
    if (info->index_size && PAN_ARCH >= 9) {
-      *indices = panfrost_get_index_buffer(batch, info, draw);
+      batch->indices = panfrost_get_index_buffer(batch, info, draw);
 
       /* Use index count to estimate vertex count */
       if (!PAN_USE_CSF)
          panfrost_increase_vertex_count(batch, draw->count);
    } else if (info->index_size) {
-      *indices = panfrost_get_index_buffer_bounded(batch, info, draw,
-                                                   &min_index, &max_index);
+      batch->indices = panfrost_get_index_buffer_bounded(
+         batch, info, draw, &min_index, &max_index);
 
       /* Use the corresponding values */
       vertex_count = max_index - min_index + 1;
@@ -4065,7 +4065,7 @@ panfrost_draw_get_vertex_count(struct panfrost_batch *batch,
 static void
 csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
               unsigned drawid_offset,
-              const struct pipe_draw_start_count_bias *draw, mali_ptr indices,
+              const struct pipe_draw_start_count_bias *draw,
               unsigned vertex_count)
 {
    struct panfrost_context *ctx = batch->ctx;
@@ -4137,7 +4137,7 @@ csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
    ceu_move64_to(b, ceu_reg64(b, 52), batch->depth_stencil);
 
    if (info->index_size)
-      ceu_move64_to(b, ceu_reg64(b, 54), indices);
+      ceu_move64_to(b, ceu_reg64(b, 54), batch->indices);
 
    uint32_t primitive_flags = 0;
    pan_pack(&primitive_flags, PRIMITIVE_FLAGS, cfg) {
@@ -4274,7 +4274,7 @@ csf_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 static void
 jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
              unsigned drawid_offset,
-             const struct pipe_draw_start_count_bias *draw, mali_ptr indices,
+             const struct pipe_draw_start_count_bias *draw,
              unsigned vertex_count)
 {
    struct panfrost_context *ctx = batch->ctx;
@@ -4327,16 +4327,15 @@ jm_emit_draw(struct panfrost_batch *batch, const struct pipe_draw_info *info,
 #if PAN_ARCH == 9
    assert(idvs && "Memory allocated IDVS required on Valhall");
 
-   panfrost_emit_malloc_vertex(batch, info, draw, indices, secondary_shader,
-                               tiler.cpu);
+   panfrost_emit_malloc_vertex(batch, info, draw, secondary_shader, tiler.cpu);
 
    panfrost_add_job(&batch->pool.base, &batch->jm.jobs.vtc_jc,
                     MALI_JOB_TYPE_MALLOC_VERTEX, false, false, 0, 0, &tiler,
                     false);
 #else
    /* Fire off the draw itself */
-   panfrost_draw_emit_tiler(batch, info, draw, &invocation, indices, fs_vary,
-                            varyings, pos, psiz, secondary_shader, tiler.cpu);
+   panfrost_draw_emit_tiler(batch, info, draw, &invocation, fs_vary, varyings,
+                            pos, psiz, secondary_shader, tiler.cpu);
    if (idvs) {
 #if PAN_ARCH >= 6
       panfrost_draw_emit_vertex_section(
@@ -4384,9 +4383,8 @@ panfrost_direct_draw(struct panfrost_batch *batch,
 
    struct panfrost_compiled_shader *vs = ctx->prog[PIPE_SHADER_VERTEX];
    bool idvs = vs->info.vs.idvs;
-   mali_ptr indices = 0;
    unsigned vertex_count =
-      panfrost_draw_get_vertex_count(batch, info, draw, &indices, idvs);
+      panfrost_draw_get_vertex_count(batch, info, draw, idvs);
 
    panfrost_statistics_record(ctx, info, draw);
 
@@ -4407,7 +4405,7 @@ panfrost_direct_draw(struct panfrost_batch *batch,
    if (panfrost_batch_skip_rasterization(batch))
       return;
 
-   JOBX(emit_draw)(batch, info, drawid_offset, draw, indices, vertex_count);
+   JOBX(emit_draw)(batch, info, drawid_offset, draw, vertex_count);
    batch->draw_count++;
 }
 
