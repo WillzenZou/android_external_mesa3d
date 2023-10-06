@@ -3612,26 +3612,59 @@ init_polygon_list(struct panfrost_batch *batch)
 #endif
 }
 
+static void
+emit_tile_map(struct panfrost_batch *batch, struct pan_fb_info *fb)
+{
+   if (batch->key.nr_cbufs < 1 || !batch->key.cbufs[0])
+      return;
+
+   struct pipe_surface *surf = batch->key.cbufs[0];
+   struct panfrost_resource *pres = surf ? pan_resource(surf->texture) : NULL;
+
+   if (pres && pres->damage.tile_map.enable) {
+      fb->tile_map.base =
+         pan_pool_upload_aligned(&batch->pool.base, pres->damage.tile_map.data,
+                                 pres->damage.tile_map.size, 64);
+      fb->tile_map.stride = pres->damage.tile_map.stride;
+   }
+}
+
+static int
+submit_batch(struct panfrost_batch *batch, struct pan_fb_info *fb)
+{
+   bool has_frag = panfrost_has_fragment_job(batch);
+
+   preload(batch, fb);
+   init_polygon_list(batch);
+   emit_tls(batch);
+   emit_tile_map(batch, fb);
+
+   /* Now that all draws are in, we can finally prepare the
+    * FBD for the batch (if there is one). */
+   if (has_frag) {
+      emit_fbd(batch, fb);
+      emit_fragment_job(batch, fb);
+   }
+
+   JOBX(emit_batch_end)(batch);
+
+   return JOBX(submit_batch)(batch);
+}
+
 void
 GENX(panfrost_cmdstream_screen_init)(struct panfrost_screen *screen)
 {
    struct panfrost_device *dev = &screen->dev;
 
    screen->vtbl.prepare_shader = prepare_shader;
-   screen->vtbl.emit_tls = emit_tls;
-   screen->vtbl.emit_fbd = emit_fbd;
-   screen->vtbl.emit_fragment_job = emit_fragment_job;
-   screen->vtbl.emit_batch_end = JOBX(emit_batch_end);
    screen->vtbl.screen_destroy = screen_destroy;
-   screen->vtbl.preload = preload;
    screen->vtbl.context_populate_vtbl = context_populate_vtbl;
    screen->vtbl.context_init = JOBX(init_context);
    screen->vtbl.context_cleanup = JOBX(cleanup_context);
    screen->vtbl.init_batch = JOBX(init_batch);
    screen->vtbl.cleanup_batch = JOBX(cleanup_batch);
-   screen->vtbl.submit_batch = JOBX(submit_batch);
+   screen->vtbl.submit_batch = submit_batch;
    screen->vtbl.get_blend_shader = GENX(pan_blend_get_shader_locked);
-   screen->vtbl.init_polygon_list = init_polygon_list;
    screen->vtbl.get_compiler_options = GENX(pan_shader_get_compiler_options);
    screen->vtbl.compile_shader = GENX(pan_shader_compile);
 

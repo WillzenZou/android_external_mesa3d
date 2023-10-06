@@ -583,23 +583,6 @@ panfrost_batch_to_fb_info(const struct panfrost_batch *batch,
 }
 
 static void
-panfrost_emit_tile_map(struct panfrost_batch *batch, struct pan_fb_info *fb)
-{
-   if (batch->key.nr_cbufs < 1 || !batch->key.cbufs[0])
-      return;
-
-   struct pipe_surface *surf = batch->key.cbufs[0];
-   struct panfrost_resource *pres = surf ? pan_resource(surf->texture) : NULL;
-
-   if (pres && pres->damage.tile_map.enable) {
-      fb->tile_map.base =
-         pan_pool_upload_aligned(&batch->pool.base, pres->damage.tile_map.data,
-                                 pres->damage.tile_map.size, 64);
-      fb->tile_map.stride = pres->damage.tile_map.stride;
-   }
-}
-
-static void
 panfrost_batch_submit(struct panfrost_context *ctx,
                       struct panfrost_batch *batch)
 {
@@ -637,23 +620,7 @@ panfrost_batch_submit(struct panfrost_context *ctx,
 
    panfrost_batch_to_fb_info(batch, &fb, rts, &zs, &s, false);
 
-   screen->vtbl.preload(batch, &fb);
-   screen->vtbl.init_polygon_list(batch);
-
-   /* Now that all draws are in, we can finally prepare the
-    * FBD for the batch (if there is one). */
-
-   screen->vtbl.emit_tls(batch);
-   panfrost_emit_tile_map(batch, &fb);
-
-   if (has_frag) {
-      screen->vtbl.emit_fbd(batch, &fb);
-      screen->vtbl.emit_fragment_job(batch, &fb);
-   }
-
-   screen->vtbl.emit_batch_end(batch);
-
-   ret = screen->vtbl.submit_batch(batch);
+   ret = screen->vtbl.submit_batch(batch, &fb);
    if (ret)
       fprintf(stderr, "panfrost_batch_submit failed: %d\n", ret);
 
