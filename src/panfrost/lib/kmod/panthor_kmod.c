@@ -108,6 +108,7 @@ panthor_dev_query_props(struct pan_kmod_dev *dev,
       .shader_present = gpu_info.shader_present,
       .tiler_features = gpu_info.tiler_features,
       .mem_features = gpu_info.mem_features,
+      .mmu_features = gpu_info.mmu_features,
       .thread_tls_alloc = 0,
       .afbc_features = 0,
    };
