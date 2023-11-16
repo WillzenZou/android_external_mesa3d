@@ -66,7 +66,6 @@ foreach arch : [6, 7, 10]
     # Bifrost
     _sources += [
       'bifrost/panvk_vX_buffer_view.c',
-      'bifrost/panvk_vX_cmd_buffer.c',
       'bifrost/panvk_vX_descriptor_set.c',
       'bifrost/panvk_vX_descriptor_set_layout.c',
       'bifrost/panvk_vX_image_view.c',
@@ -77,25 +76,26 @@ foreach arch : [6, 7, 10]
       'bifrost/panvk_vX_nir_lower_descriptors.c',
       'bifrost/panvk_vX_pipeline.c',
       'bifrost/panvk_vX_pipeline_layout.c',
-      'bifrost/panvk_vX_queue.c',
       'bifrost/panvk_vX_shader.c',
     ]
   else
     # Valhall
     _sources += [
-      'valhall/panvk_vX_cmd_buffer.c',
       'valhall/panvk_vX_meta_copy.c',
-      'valhall/panvk_vX_queue.c',
     ]
   endif
 
   if arch < 10
     # JM
     _sources += [
+      'jm/panvk_vX_cmd_buffer.c',
+      'jm/panvk_vX_queue.c',
     ]
   else
     # CSF
     _sources += [
+      'csf/panvk_vX_cmd_buffer.c',
+      'csf/panvk_vX_queue.c',
     ]
   endif
 
