@@ -62,7 +62,7 @@ foreach arch : [6, 7, 10]
     'panvk_vX_sampler.c',
   ]
 
-  if arch in [6, 7]
+  if arch < 9
     # Bifrost
     _sources += [
       'bifrost/panvk_vX_buffer_view.c',
@@ -86,6 +86,16 @@ foreach arch : [6, 7, 10]
       'valhall/panvk_vX_cmd_buffer.c',
       'valhall/panvk_vX_meta_copy.c',
       'valhall/panvk_vX_queue.c',
+    ]
+  endif
+
+  if arch < 10
+    # JM
+    _sources += [
+    ]
+  else
+    # CSF
+    _sources += [
     ]
   endif
 
