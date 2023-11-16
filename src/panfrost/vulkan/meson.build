@@ -59,12 +59,12 @@ panvk_deps = []
 panvk_flags = []
 panvk_per_arch_libs = []
 
-foreach arch : ['6', '7', '10']
+foreach arch : [6, 7, 10]
   _sources = [
     panvk_entrypoints[0],
   ]
 
-  if arch in ['6', '7']
+  if arch in [6, 7]
     # Bifrost / JM
     _sources += [
       'jm/panvk_vX_cmd_buffer.c',
