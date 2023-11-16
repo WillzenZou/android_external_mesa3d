@@ -65,9 +65,9 @@ foreach arch : ['6', '7', '10']
   ]
 
   if arch in ['6', '7']
-    # Bifrost
+    # Bifrost / JM
     _sources += [
-      'bifrost/panvk_vX_cmd_buffer.c',
+      'jm/panvk_vX_cmd_buffer.c',
       'bifrost/panvk_vX_cs.c',
       'bifrost/panvk_vX_descriptor_set.c',
       'bifrost/panvk_vX_device.c',
@@ -81,9 +81,9 @@ foreach arch : ['6', '7', '10']
       'bifrost/panvk_vX_shader.c',
     ]
   else
-    # Valhall
+    # Valhall / CSF
     _sources += [
-      'valhall/panvk_vX_cmd_buffer.c',
+      'csf/panvk_vX_cmd_buffer.c',
       'valhall/panvk_vX_descriptor_set.c',
       'valhall/panvk_vX_device.c',
       'valhall/panvk_vX_image.c',
