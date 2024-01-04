@@ -69,7 +69,6 @@ foreach arch : [6, 7, 10]
     _sources += [
       'bifrost/panvk_vX_cs.c',
       'bifrost/panvk_vX_descriptor_set.c',
-      'bifrost/panvk_vX_device.c',
       'bifrost/panvk_vX_image.c',
       'bifrost/panvk_vX_meta.c',
       'bifrost/panvk_vX_meta_blit.c',
@@ -83,7 +82,6 @@ foreach arch : [6, 7, 10]
     # Valhall
     _sources += [
       'valhall/panvk_vX_descriptor_set.c',
-      'valhall/panvk_vX_device.c',
       'valhall/panvk_vX_image.c',
       'valhall/panvk_vX_meta_copy.c',
     ]
@@ -93,11 +91,13 @@ foreach arch : [6, 7, 10]
     # JM
     _sources += [
       'jm/panvk_vX_cmd_buffer.c',
+      'jm/panvk_vX_device.c',
     ]
   else
     # CSF
     _sources += [
       'csf/panvk_vX_cmd_buffer.c',
+      'csf/panvk_vX_device.c',
     ]
   endif
 
