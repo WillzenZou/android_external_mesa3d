@@ -12,19 +12,19 @@ extern "C" {
 /**
  * DOC: Introduction
  *
- * This documentation decribes the Panthor IOCTLs.
+ * This documentation describes the Panthor IOCTLs.
  *
  * Just a few generic rules about the data passed to the Panthor IOCTLs:
  *
  * - Structures must be aligned on 64-bit/8-byte. If the object is not
  *   naturally aligned, a padding field must be added.
- * - Fields must be explicity aligned to their natural type alignment with
+ * - Fields must be explicitly aligned to their natural type alignment with
  *   pad[0..N] fields.
  * - All padding fields will be checked by the driver to make sure they are
  *   zeroed.
  * - Flags can be added, but not removed/replaced.
  * - New fields can be added to the main structures (the structures
- *   directly passed to the ioctl). Those fiels can be added at the end of
+ *   directly passed to the ioctl). Those fields can be added at the end of
  *   the structure, or replace existing padding fields. Any new field being
  *   added must preserve the behavior that existed before those fields were
  *   added when a value of zero is passed.
@@ -32,8 +32,8 @@ extern "C" {
  *   main structure), iff those objects are passed a size to reflect the
  *   size known by the userspace driver (see drm_panthor_obj_array::stride
  *   or drm_panthor_dev_query::size).
- * - If the kernel driver is too old to know some fields, those will
- *   be ignored (input) and set back to zero (output).
+ * - If the kernel driver is too old to know some fields, those will be
+ *   ignored if zero, and otherwise rejected (and so will be zero on output).
  * - If userspace is too old to know some fields, those will be zeroed
  *   (input) before the structure is parsed by the kernel driver.
  * - Each new flag/field addition must come with a driver version update so
@@ -52,18 +52,24 @@ extern "C" {
  *
  * File offset for all MMIO regions being exposed to userspace. Don't use
  * this value directly, use DRM_PANTHOR_USER_<name>_OFFSET values instead.
+ * pgoffset passed to mmap2() is an unsigned long, which forces us to use a
+ * different offset on 32-bit and 64-bit systems.
  *
  * .. c:macro:: DRM_PANTHOR_USER_FLUSH_ID_MMIO_OFFSET
  *
  * File offset for the LATEST_FLUSH_ID register. The Userspace driver controls
- * GPU cache flushling through CS instructions, but the flush reduction
+ * GPU cache flushing through CS instructions, but the flush reduction
  * mechanism requires a flush_id. This flush_id could be queried with an
  * ioctl, but Arm provides a well-isolated register page containing only this
  * read-only register, so let's expose this page through a static mmap offset
  * and allow direct mapping of this MMIO region so we can avoid the
  * user <-> kernel round-trip.
  */
-#define DRM_PANTHOR_USER_MMIO_OFFSET		(0x1ull << 56)
+#define DRM_PANTHOR_USER_MMIO_OFFSET_32BIT	(1ull << 43)
+#define DRM_PANTHOR_USER_MMIO_OFFSET_64BIT	(1ull << 56)
+#define DRM_PANTHOR_USER_MMIO_OFFSET		(sizeof(unsigned long) < 8 ? \
+						 DRM_PANTHOR_USER_MMIO_OFFSET_32BIT : \
+						 DRM_PANTHOR_USER_MMIO_OFFSET_64BIT)
 #define DRM_PANTHOR_USER_FLUSH_ID_MMIO_OFFSET	(DRM_PANTHOR_USER_MMIO_OFFSET | 0)
 
 /**
@@ -71,7 +77,7 @@ extern "C" {
  *
  * enum drm_panthor_ioctl_id - IOCTL IDs
  *
- * Place new ioctls at the end, don't re-oder, don't replace or remove entries.
+ * Place new ioctls at the end, don't re-order, don't replace or remove entries.
  *
  * These IDs are not meant to be used directly. Use the DRM_IOCTL_PANTHOR_xxx
  * definitions instead.
@@ -88,6 +94,9 @@ enum drm_panthor_ioctl_id {
 
 	/** @DRM_PANTHOR_VM_BIND: Bind/unbind memory to a VM. */
 	DRM_PANTHOR_VM_BIND,
+
+	/** @DRM_PANTHOR_VM_GET_STATE: Get VM state. */
+	DRM_PANTHOR_VM_GET_STATE,
 
 	/** @DRM_PANTHOR_BO_CREATE: Create a buffer object. */
 	DRM_PANTHOR_BO_CREATE,
@@ -120,7 +129,6 @@ enum drm_panthor_ioctl_id {
 	DRM_PANTHOR_TILER_HEAP_DESTROY,
 };
 
-
 /**
  * DRM_IOCTL_PANTHOR() - Build a Panthor IOCTL number
  * @__access: Access type. Must be R, W or RW.
@@ -144,6 +152,8 @@ enum drm_panthor_ioctl_id {
 	DRM_IOCTL_PANTHOR(WR, VM_DESTROY, vm_destroy)
 #define DRM_IOCTL_PANTHOR_VM_BIND \
 	DRM_IOCTL_PANTHOR(WR, VM_BIND, vm_bind)
+#define DRM_IOCTL_PANTHOR_VM_GET_STATE \
+	DRM_IOCTL_PANTHOR(WR, VM_GET_STATE, vm_get_state)
 #define DRM_IOCTL_PANTHOR_BO_CREATE \
 	DRM_IOCTL_PANTHOR(WR, BO_CREATE, bo_create)
 #define DRM_IOCTL_PANTHOR_BO_MMAP_OFFSET \
@@ -168,7 +178,7 @@ enum drm_panthor_ioctl_id {
 /**
  * struct drm_panthor_obj_array - Object array.
  *
- * This object is used to pass an array of objects whose size it subject to changes in
+ * This object is used to pass an array of objects whose size is subject to changes in
  * future versions of the driver. In order to support this mutability, we pass a stride
  * describing the size of the object as known by userspace.
  *
@@ -218,7 +228,7 @@ enum drm_panthor_sync_op_flags {
 	DRM_PANTHOR_SYNC_OP_WAIT = 0 << 31,
 
 	/** @DRM_PANTHOR_SYNC_OP_SIGNAL: Signal operation. */
-	DRM_PANTHOR_SYNC_OP_SIGNAL = 1 << 31,
+	DRM_PANTHOR_SYNC_OP_SIGNAL = (int)(1u << 31),
 };
 
 /**
@@ -242,7 +252,7 @@ struct drm_panthor_sync_op {
 /**
  * enum drm_panthor_dev_query_type - Query type
  *
- * Place new types at the end, don't re-oder, don't remove or replace.
+ * Place new types at the end, don't re-order, don't remove or replace.
  */
 enum drm_panthor_dev_query_type {
 	/** @DRM_PANTHOR_DEV_QUERY_GPU_INFO: Query GPU information. */
@@ -317,19 +327,13 @@ struct drm_panthor_gpu_info {
 	/** @as_present: Bitmask encoding the number of address-space exposed by the MMU. */
 	__u32 as_present;
 
-	/** @core_group_count: Number of core groups. */
-	__u32 core_group_count;
-
-	/** @pad: Zero on return. */
-	__u32 pad;
-
 	/** @shader_present: Bitmask encoding the shader cores exposed by the GPU. */
 	__u64 shader_present;
 
 	/** @l2_present: Bitmask encoding the L2 caches exposed by the GPU. */
 	__u64 l2_present;
 
-	/** @tiler_present: Bitmask encoding the tiler unit exposed by the GPU. */
+	/** @tiler_present: Bitmask encoding the tiler units exposed by the GPU. */
 	__u64 tiler_present;
 };
 
@@ -342,13 +346,13 @@ struct drm_panthor_csif_info {
 	/** @csg_slot_count: Number of command stream group slots exposed by the firmware. */
 	__u32 csg_slot_count;
 
-	/** @cs_slot_count: Number of command stream slot per group. */
+	/** @cs_slot_count: Number of command stream slots per group. */
 	__u32 cs_slot_count;
 
-	/** @cs_reg_count: Number of command stream register. */
+	/** @cs_reg_count: Number of command stream registers. */
 	__u32 cs_reg_count;
 
-	/** @scoreboard_slot_count: Number of scoreboard slot. */
+	/** @scoreboard_slot_count: Number of scoreboard slots. */
 	__u32 scoreboard_slot_count;
 
 	/**
@@ -406,13 +410,26 @@ struct drm_panthor_vm_create {
 	__u32 id;
 
 	/**
-	 * @kernel_va_range: Size of the VA space reserved for kernel objects.
+	 * @user_va_range: Size of the VA space reserved for user objects.
 	 *
-	 * If kernel_va_range is zero, we pick half of the VA space for kernel objects.
+	 * The kernel will pick the remaining space to map kernel-only objects to the
+	 * VM (heap chunks, heap context, ring buffers, kernel synchronization objects,
+	 * ...). If the space left for kernel objects is too small, kernel object
+	 * allocation will fail further down the road. One can use
+	 * drm_panthor_gpu_info::mmu_features to extract the total virtual address
+	 * range, and chose a user_va_range that leaves some space to the kernel.
 	 *
-	 * Kernel VA space is always placed at the top of the supported VA range.
+	 * If user_va_range is zero, the kernel will pick a sensible value based on
+	 * TASK_SIZE and the virtual range supported by the GPU MMU (the kernel/user
+	 * split should leave enough VA space for userspace processes to support SVM,
+	 * while still allowing the kernel to map some amount of kernel objects in
+	 * the kernel VA range). The value chosen by the driver will be returned in
+	 * @user_va_range.
+	 *
+	 * User VA space always starts at 0x0, kernel VA space is always placed after
+	 * the user VA range.
 	 */
-	__u64 kernel_va_range;
+	__u64 user_va_range;
 };
 
 /**
@@ -454,13 +471,23 @@ enum drm_panthor_vm_bind_op_flags {
 	/**
 	 * @DRM_PANTHOR_VM_BIND_OP_TYPE_MASK: Mask used to determine the type of operation.
 	 */
-	DRM_PANTHOR_VM_BIND_OP_TYPE_MASK = 0xf << 28,
+	DRM_PANTHOR_VM_BIND_OP_TYPE_MASK = (int)(0xfu << 28),
 
 	/** @DRM_PANTHOR_VM_BIND_OP_TYPE_MAP: Map operation. */
 	DRM_PANTHOR_VM_BIND_OP_TYPE_MAP = 0 << 28,
 
 	/** @DRM_PANTHOR_VM_BIND_OP_TYPE_UNMAP: Unmap operation. */
 	DRM_PANTHOR_VM_BIND_OP_TYPE_UNMAP = 1 << 28,
+
+	/**
+	 * @DRM_PANTHOR_VM_BIND_OP_TYPE_SYNC_ONLY: No VM operation.
+	 *
+	 * Just serves as a synchronization point on a VM queue.
+	 *
+	 * Only valid if %DRM_PANTHOR_VM_BIND_ASYNC is set in drm_panthor_vm_bind::flags,
+	 * and drm_panthor_vm_bind_op::syncs contains at least one element.
+	 */
+	DRM_PANTHOR_VM_BIND_OP_TYPE_SYNC_ONLY = 2 << 28,
 };
 
 /**
@@ -472,29 +499,36 @@ struct drm_panthor_vm_bind_op {
 
 	/**
 	 * @bo_handle: Handle of the buffer object to map.
-	 * MBZ for unmap operations.
+	 * MBZ for unmap or sync-only operations.
 	 */
 	__u32 bo_handle;
 
 	/**
 	 * @bo_offset: Buffer object offset.
-	 * MBZ for unmap operations.
+	 * MBZ for unmap or sync-only operations.
 	 */
 	__u64 bo_offset;
 
 	/**
 	 * @va: Virtual address to map/unmap.
+	 * MBZ for sync-only operations.
 	 */
 	__u64 va;
 
-	/** @size: Size to map/unmap. */
+	/**
+	 * @size: Size to map/unmap.
+	 * MBZ for sync-only operations.
+	 */
 	__u64 size;
 
 	/**
-	 * @syncs: Array of synchronization operations.
+	 * @syncs: Array of struct drm_panthor_sync_op synchronization
+	 * operations.
 	 *
 	 * This array must be empty if %DRM_PANTHOR_VM_BIND_ASYNC is not set on
 	 * the drm_panthor_vm_bind object containing this VM bind operation.
+	 *
+	 * This array shall not be empty for sync-only operations.
 	 */
 	struct drm_panthor_obj_array syncs;
 
@@ -521,8 +555,50 @@ struct drm_panthor_vm_bind {
 	/** @flags: Combination of drm_panthor_vm_bind_flags flags. */
 	__u32 flags;
 
-	/** @ops: Array of bind operations. */
+	/** @ops: Array of struct drm_panthor_vm_bind_op bind operations. */
 	struct drm_panthor_obj_array ops;
+};
+
+/**
+ * enum drm_panthor_vm_state - VM states.
+ */
+enum drm_panthor_vm_state {
+	/**
+	 * @DRM_PANTHOR_VM_STATE_USABLE: VM is usable.
+	 *
+	 * New VM operations will be accepted on this VM.
+	 */
+	DRM_PANTHOR_VM_STATE_USABLE,
+
+	/**
+	 * @DRM_PANTHOR_VM_STATE_UNSABLE: VM is unsable.
+	 *
+	 * Something put the VM in an unusable state (like an asynchronous
+	 * VM_BIND request failing for any reason).
+	 *
+	 * Once the VM is in this state, all new MAP operations will be
+	 * rejected, and any GPU job targeting this VM will fail.
+	 * UNMAP operations are still accepted.
+	 *
+	 * The only way to recover from an unusable VM is to create a new
+	 * VM, and destroy the old one.
+	 */
+	DRM_PANTHOR_VM_STATE_UNUSABLE,
+};
+
+/**
+ * struct drm_panthor_vm_get_state - Get VM state.
+ */
+struct drm_panthor_vm_get_state {
+	/** @vm_id: VM targeted by the get_state request. */
+	__u32 vm_id;
+
+	/**
+	 * @state: state returned by the driver.
+	 *
+	 * Must be one of the enum drm_panthor_vm_state values.
+	 */
+	__u32 state;
 };
 
 /**
@@ -618,7 +694,7 @@ enum drm_panthor_group_priority {
  * struct drm_panthor_group_create - Arguments passed to DRM_IOCTL_PANTHOR_GROUP_CREATE
  */
 struct drm_panthor_group_create {
-	/** @queues: Array of drm_panthor_create_cs_queue elements. */
+	/** @queues: Array of drm_panthor_queue_create elements. */
 	struct drm_panthor_obj_array queues;
 
 	/**
@@ -645,7 +721,7 @@ struct drm_panthor_group_create {
 	 */
 	__u8 max_tiler_cores;
 
-	/** @priority: Group priority (see drm_drm_panthor_cs_group_priority). */
+	/** @priority: Group priority (see enum drm_panthor_group_priority). */
 	__u8 priority;
 
 	/** @pad: Padding field, MBZ. */
@@ -746,7 +822,7 @@ struct drm_panthor_queue_submit {
 	/** @pad: MBZ. */
 	__u32 pad;
 
-	/** @syncs: Array of sync operations. */
+	/** @syncs: Array of struct drm_panthor_sync_op sync operations. */
 	struct drm_panthor_obj_array syncs;
 };
 

@@ -463,7 +463,7 @@ panthor_kmod_vm_create(struct pan_kmod_dev *dev, uint32_t flags,
 
    uint64_t full_va_range = 1ull << DRM_PANTHOR_MMU_VA_BITS(props.mmu_features);
    struct drm_panthor_vm_create req = {
-      .kernel_va_range = MIN2(full_va_range - user_va_start - user_va_range,
+      .user_va_range = MIN2(full_va_range - user_va_start - user_va_range,
                               full_va_range >> 1),
    };
 
