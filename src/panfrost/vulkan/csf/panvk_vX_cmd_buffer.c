@@ -4,6 +4,7 @@
  */
 
 #include "genxml/gen_macros.h"
+#include "genxml/cs_builder.h"
 
 #include "csf/panvk_vX_cmd_buffer.h"
 #include "panvk_buffer.h"
@@ -112,6 +113,19 @@ const struct vk_command_buffer_ops panvk_per_arch(cmd_buffer_ops) = {
    .destroy = panvk_destroy_cmdbuf,
 };
 
+static void
+panvk_csf_cmd_end_streams(struct panvk_csf_cmd_buffer *cmdbuf)
+{
+   struct panvk_device *dev = to_panvk_device(cmdbuf->base.vk.base.device);
+   for (uint32_t i = 0; i < PANVK_CSF_QUEUE_COUNT; i++) {
+      if (cmdbuf->streams[i].builder->root_chunk.size != 0) {
+         cmdbuf->streams[i].latest_flush_id =
+            panthor_kmod_get_flush_id(dev->kmod.dev);
+         cs_finish(cmdbuf->streams[i].builder);
+      }
+   }
+}
+
 void
 panvk_per_arch(CmdNextSubpass2)(VkCommandBuffer commandBuffer,
                                 const VkSubpassBeginInfo *pSubpassBeginInfo,
@@ -146,8 +160,11 @@ panvk_per_arch(CmdDrawIndexed)(VkCommandBuffer commandBuffer,
 VkResult
 panvk_per_arch(EndCommandBuffer)(VkCommandBuffer commandBuffer)
 {
-   panvk_stub();
-   return VK_SUCCESS;
+   VK_FROM_HANDLE(panvk_csf_cmd_buffer, cmdbuf, commandBuffer);
+
+   panvk_csf_cmd_end_streams(cmdbuf);
+
+   return vk_command_buffer_end(&cmdbuf->base.vk);
 }
 
 void
