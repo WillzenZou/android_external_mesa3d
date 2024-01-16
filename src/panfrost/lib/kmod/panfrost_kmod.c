@@ -102,7 +102,7 @@ panfrost_dev_query_props(struct pan_kmod_dev *dev,
    props->mem_features =
       panfrost_query_raw(fd, DRM_PANFROST_PARAM_MEM_FEATURES, true, 0);
    props->mmu_features =
-      panfrost_query_raw(fd, DRM_PANFROST_PARAM_MEM_FEATURES, false, 0);
+      panfrost_query_raw(fd, DRM_PANFROST_PARAM_MMU_FEATURES, false, 0);
 
    for (unsigned i = 0; i < ARRAY_SIZE(props->texture_features); i++) {
       /* If unspecified, assume ASTC/ETC only. Factory default for Juno, and
