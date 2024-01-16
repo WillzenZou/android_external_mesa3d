@@ -63,8 +63,16 @@ panthor_kmod_dev_create(int fd, drmVersionPtr version,
    if (!panthor_dev)
       return NULL;
 
-   panthor_dev->flush_id = os_mmap(0, getpagesize(), PROT_READ, MAP_SHARED, fd,
-                                   DRM_PANTHOR_USER_FLUSH_ID_MMIO_OFFSET);
+   bool disable_flush_id = debug_get_bool_option("PAN_SHIM_DISABLE_FLUSH_ID", false);
+
+   /* Handling this in drm-shim is not easy without major changes in it */
+   if (unlikely(disable_flush_id)) {
+      panthor_dev->flush_id = os_mmap(0, getpagesize(), PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+   } else {
+      panthor_dev->flush_id = os_mmap(0, getpagesize(), PROT_READ, MAP_SHARED, fd,
+                                    DRM_PANTHOR_USER_FLUSH_ID_MMIO_OFFSET);
+   }
+
    if (panthor_dev->flush_id == MAP_FAILED)
       goto err_free_dev;
 
