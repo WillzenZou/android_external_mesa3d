@@ -84,6 +84,7 @@ foreach arch : [6, 7, 10]
       'valhall/panvk_vX_descriptor_set.c',
       'valhall/panvk_vX_descriptor_set_layout.c',
       'valhall/panvk_vX_meta_copy.c',
+      'valhall/panvk_vX_nir_lower_descriptors.c',
       'valhall/panvk_vX_pipeline_layout.c',
     ]
   endif
