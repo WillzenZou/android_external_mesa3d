@@ -1592,6 +1592,12 @@ bi_emit_intrinsic(bi_builder *b, nir_intrinsic_instr *instr)
          unreachable("Unsupported shader stage");
       break;
 
+   case nir_intrinsic_load_ssbo_address:
+      assert(b->shader->arch >= 9);
+      bi_lea_pka_to(b, dst, bi_zero(), bi_src_index(&instr->src[0]));
+      bi_emit_cached_split(b, dst, 64);
+      break;
+
    case nir_intrinsic_store_output:
       if (stage == MESA_SHADER_FRAGMENT)
          bi_emit_fragment_out(b, instr);
