@@ -8712,6 +8712,11 @@
     <src start="0"/>
   </ins>
 
+  <ins name="+LEA_PKA" staging="w=2" message="attribute" pseudo="true">
+    <src start="0"/>
+    <src start="3"/>
+  </ins>
+
   <ins name="+LD_BUFFER.i128" staging="w=4" pseudo="true" message="load">
     <src start="0"/>
     <src start="3"/>

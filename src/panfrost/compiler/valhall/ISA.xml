@@ -1245,6 +1245,17 @@
     <src size="32">Mode descriptor</src>
   </ins>
 
+  <ins name="LEA_PKA" title="Load effective address of value from a paged-kernel argument buffer" opcode="0x6b" unit="LS">
+    <desc>
+      Calculates the address of a value in a paged-kernel argument buffer.
+    </desc>
+    <sr write="true"/>
+    <sr_count/>
+    <slot/>
+    <src size="32">Byte offset</src>
+    <src size="32">Descriptor handle</src>
+  </ins>
+
   <ins name="LEA_BUF_IMM" title="Load buffer effective address" opcode="0x5E" unit="LS">
     <desc>
       Load effective address of a buffer with an immediate offset added.
