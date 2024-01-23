@@ -1182,6 +1182,14 @@ panvk_InvalidateMappedMemoryRanges(VkDevice _device, uint32_t memoryRangeCount,
    return VK_SUCCESS;
 }
 
+VkDeviceAddress
+panvk_GetBufferDeviceAddress(VkDevice _device, VkBufferDeviceAddressInfo *pInfo)
+{
+   VK_FROM_HANDLE(panvk_buffer, buffer, pInfo->buffer);
+
+   return buffer->bo->ptr.gpu + buffer->bo_offset;
+}
+
 void
 panvk_GetBufferMemoryRequirements2(VkDevice device,
                                    const VkBufferMemoryRequirementsInfo2 *pInfo,
