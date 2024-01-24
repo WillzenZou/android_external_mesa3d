@@ -60,6 +60,24 @@ get_binding_layout(unsigned set, unsigned binding,
 }
 
 static void
+get_resource_deref_binding(nir_builder *b, nir_deref_instr *deref,
+                           unsigned *set, unsigned *binding, nir_def **index)
+{
+   if (deref->deref_type == nir_deref_type_array) {
+      *index = deref->arr.index.ssa;
+      deref = nir_deref_instr_parent(deref);
+   } else {
+      *index = nir_imm_int(b, 0);
+   }
+
+   assert(deref->deref_type == nir_deref_type_var);
+   nir_variable *var = deref->var;
+
+   *set = var->data.descriptor_set;
+   *binding = var->data.binding;
+}
+
+static void
 build_desc_index(nir_builder *b, unsigned set,
                  const struct panvk2_descriptor_set_binding_layout *layout,
                  nir_def *array_index, VkDescriptorType type,
@@ -170,6 +188,102 @@ build_res_reindex(nir_builder *b, VkDescriptorType desc_type, nir_def *orig,
    return nir_vec2(b, new_index, nir_channel(b, orig, 1));
 }
 
+static void
+tex_desc_get_index_offset(nir_builder *b, nir_deref_instr *deref,
+                          const struct lower_descriptors_ctx *ctx,
+                          nir_def **table_idx, nir_def **desc_offset)
+{
+   unsigned set, binding;
+   nir_def *array_index;
+   get_resource_deref_binding(b, deref, &set, &binding, &array_index);
+   const struct panvk2_descriptor_set_binding_layout *binding_layout =
+      get_binding_layout(set, binding, ctx);
+
+   const unsigned desc_stride = panvk2_get_desc_stride(binding_layout->type);
+   const unsigned desc_index = panvk2_get_desc_index(
+      binding_layout, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+
+   *table_idx =
+      nir_imm_int(b, pan_res_handle(PANVK_VALHALL_RESOURCE_TABLE_IDX, set));
+   *desc_offset = nir_iadd_imm(b, nir_imul_imm(b, array_index, desc_stride),
+                               desc_index * PANVK_DESCRIPTOR_SIZE);
+}
+
+static nir_def *
+load_tex_img_size(nir_builder *b, nir_deref_instr *deref,
+                  unsigned coord_components, bool is_array,
+                  unsigned dest_components,
+                  const struct lower_descriptors_ctx *ctx)
+{
+   nir_def *table_idx;
+   nir_def *desc_offset;
+   tex_desc_get_index_offset(b, deref, ctx, &table_idx, &desc_offset);
+
+   if (is_array)
+      coord_components--;
+
+   nir_def *comps[3];
+
+   assert(coord_components != 3 || !is_array);
+   assert(dest_components <= 3);
+
+   /* S/T dimension is encoded in MALI_TEXTURE::word[1].bits[0:31] with 1
+    * subtracted. */
+   nir_def *xy_size = nir_load_ubo(
+      b, 1, 32, table_idx, nir_iadd_imm(b, desc_offset, 0x4), .range = ~0u,
+      .align_mul = PANVK_DESCRIPTOR_SIZE, .align_offset = 0x4);
+
+   if (coord_components == 1) {
+      /* 1D images store their size in a 32 bits field. */
+      comps[0] = xy_size;
+   } else {
+      /* All others images type store their size with 16 bits. */
+      comps[0] = nir_u2u32(b, nir_unpack_32_2x16_split_x(b, xy_size));
+      comps[1] = nir_u2u32(b, nir_unpack_32_2x16_split_y(b, xy_size));
+
+      /* R dimension is encoded in MALI_TEXTURE::word[7].bits[0:15] with 1
+       * subtracted. */
+      if (coord_components == 3) {
+         comps[2] = nir_u2u32(
+            b, nir_load_ubo(b, 1, 16, table_idx,
+                            nir_iadd_imm(b, desc_offset, 0x1c), .range = ~0u,
+                            .align_mul = PANVK_DESCRIPTOR_SIZE,
+                            .align_offset = 0x1c));
+      }
+   }
+
+   /* Array size is encoded in MALI_TEXTURE::word[6].bits[0:15] with 1
+    * subtracted. */
+   if (is_array) {
+      comps[coord_components] = nir_u2u32(
+         b,
+         nir_load_ubo(b, 1, 16, table_idx, nir_iadd_imm(b, desc_offset, 0x18),
+                      .range = ~0u, .align_mul = PANVK_DESCRIPTOR_SIZE,
+                      .align_offset = 0x18));
+   }
+
+   /* All sizes are encoded with 1 subtracted. */
+   return nir_iadd_imm(b, nir_vec(b, comps, dest_components), 1);
+}
+
+static nir_def *
+load_tex_img_samples(nir_builder *b, nir_deref_instr *deref,
+                     const struct lower_descriptors_ctx *ctx)
+{
+   nir_def *table_idx;
+   nir_def *desc_offset;
+   tex_desc_get_index_offset(b, deref, ctx, &table_idx, &desc_offset);
+
+   /* Multisample count is encoded in MALI_TEXTURE::word[3].bits[13:15] as the
+    * exponent of a power of 2. */
+   nir_def *raw_value = nir_load_ubo(
+      b, 1, 32, table_idx, nir_iadd_imm(b, desc_offset, 0xc), .range = ~0u,
+      .align_mul = PANVK_DESCRIPTOR_SIZE, .align_offset = 0xc);
+   nir_def *ms_count_type = nir_iand_imm(b, nir_ishr_imm(b, raw_value, 13), 7);
+
+   return nir_ishl(b, nir_imm_int(b, 1), ms_count_type);
+}
+
 static bool
 lower_tex(nir_builder *b, nir_tex_instr *tex,
           const struct lower_descriptors_ctx *ctx)
@@ -216,10 +330,43 @@ lower_res_intrin(nir_builder *b, nir_intrinsic_instr *intrin,
 
 static bool
 lower_image_intrin(nir_builder *b, nir_intrinsic_instr *intrin,
-                   const struct lower_descriptors_ctx *ctx)
+                   struct lower_descriptors_ctx *ctx)
 {
-   /* TODO */
-   return false;
+   b->cursor = nir_before_instr(&intrin->instr);
+   nir_deref_instr *deref = nir_src_as_deref(intrin->src[0]);
+
+   if (intrin->intrinsic == nir_intrinsic_image_deref_size ||
+       intrin->intrinsic == nir_intrinsic_image_deref_samples) {
+      const unsigned coord_components =
+         nir_image_intrinsic_coord_components(intrin);
+      const bool is_array = nir_intrinsic_image_array(intrin);
+
+      nir_def *res;
+      switch (intrin->intrinsic) {
+      case nir_intrinsic_image_deref_size:
+         res = load_tex_img_size(b, deref, coord_components, is_array,
+                                 intrin->def.num_components, ctx);
+         break;
+      case nir_intrinsic_image_deref_samples:
+         res = load_tex_img_samples(b, deref, ctx);
+         break;
+      default:
+         unreachable("Unsupported image query op");
+      }
+
+      nir_def_rewrite_uses(&intrin->def, res);
+      nir_instr_remove(&intrin->instr);
+   } else {
+      unsigned set, binding;
+      nir_def *array_index;
+      get_resource_deref_binding(b, deref, &set, &binding, &array_index);
+
+      nir_rewrite_image_intrinsic(
+         intrin, build_index(b, set, binding, array_index, ctx), false);
+      ctx->has_img_access = true;
+   }
+
+   return true;
 }
 
 static bool
