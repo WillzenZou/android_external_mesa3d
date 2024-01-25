@@ -1183,7 +1183,7 @@ panvk_InvalidateMappedMemoryRanges(VkDevice _device, uint32_t memoryRangeCount,
 }
 
 VkDeviceAddress
-panvk_GetBufferDeviceAddress(VkDevice _device, VkBufferDeviceAddressInfo *pInfo)
+panvk_GetBufferDeviceAddress(VkDevice _device, const VkBufferDeviceAddressInfo *pInfo)
 {
    VK_FROM_HANDLE(panvk_buffer, buffer, pInfo->buffer);
 
