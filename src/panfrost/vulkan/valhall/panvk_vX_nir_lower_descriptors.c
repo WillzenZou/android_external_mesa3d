@@ -267,6 +267,25 @@ load_tex_img_size(nir_builder *b, nir_deref_instr *deref,
 }
 
 static nir_def *
+load_tex_img_levels(nir_builder *b, nir_deref_instr *deref,
+                    const struct lower_descriptors_ctx *ctx)
+{
+   nir_def *table_idx;
+   nir_def *desc_offset;
+   tex_desc_get_index_offset(b, deref, ctx, &table_idx, &desc_offset);
+
+   /* Number of levels is encoded in MALI_TEXTURE::word[2].bits[16:20] with 1
+    * subtracted. */
+   nir_def *raw_value = nir_load_ubo(
+      b, 1, 32, table_idx, nir_iadd_imm(b, desc_offset, 0x8), .range = ~0u,
+      .align_mul = PANVK_DESCRIPTOR_SIZE, .align_offset = 0x8);
+   nir_def *mip_levels_minus_one =
+      nir_iand_imm(b, nir_ishr_imm(b, raw_value, 16), 0xf);
+
+   return nir_iadd_imm(b, mip_levels_minus_one, 1);
+}
+
+static nir_def *
 load_tex_img_samples(nir_builder *b, nir_deref_instr *deref,
                      const struct lower_descriptors_ctx *ctx)
 {
@@ -288,8 +307,106 @@ static bool
 lower_tex(nir_builder *b, nir_tex_instr *tex,
           const struct lower_descriptors_ctx *ctx)
 {
-   /* TODO */
-   return false;
+   b->cursor = nir_before_instr(&tex->instr);
+
+   const int texture_src_idx =
+      nir_tex_instr_src_index(tex, nir_tex_src_texture_deref);
+   const int sampler_src_idx =
+      nir_tex_instr_src_index(tex, nir_tex_src_sampler_deref);
+
+   if (texture_src_idx < 0) {
+      assert(sampler_src_idx < 0);
+      return false;
+   }
+
+   nir_deref_instr *texture = nir_src_as_deref(tex->src[texture_src_idx].src);
+   assert(texture);
+
+   if (tex->op == nir_texop_txs || tex->op == nir_texop_query_levels ||
+       tex->op == nir_texop_texture_samples) {
+      unsigned coord_components =
+         glsl_get_sampler_dim_coordinate_components(tex->sampler_dim);
+      const bool is_array = tex->is_array;
+
+      if (tex->sampler_dim != GLSL_SAMPLER_DIM_CUBE)
+         coord_components += is_array;
+
+      nir_def *res;
+      switch (tex->op) {
+      case nir_texop_txs:
+         res = load_tex_img_size(b, texture, coord_components, is_array,
+                                 tex->def.num_components, ctx);
+         break;
+      case nir_texop_query_levels:
+         res = load_tex_img_levels(b, texture, ctx);
+         break;
+      case nir_texop_texture_samples:
+         res = load_tex_img_samples(b, texture, ctx);
+         break;
+      default:
+         unreachable("Unsupported texture query op");
+      }
+
+      nir_def_rewrite_uses(&tex->def, res);
+      nir_instr_remove(&tex->instr);
+      return true;
+   }
+
+   nir_deref_instr *sampler =
+      sampler_src_idx < 0 ? NULL
+                          : nir_src_as_deref(tex->src[sampler_src_idx].src);
+
+   unsigned tex_set, tex_binding;
+   nir_def *tex_array_index;
+   get_resource_deref_binding(b, texture, &tex_set, &tex_binding,
+                              &tex_array_index);
+
+   unsigned sampler_set, sampler_binding;
+   nir_def *sampler_array_index;
+
+   /*
+    * Valhall ISA enforce a sampler for every texture ops.
+    * panvk2 should have created an entry as the first binding in the set.
+    */
+   if (sampler == NULL) {
+      sampler_set = tex_set;
+      sampler_binding = 0;
+      sampler_array_index = NULL;
+   } else {
+      get_resource_deref_binding(b, sampler, &sampler_set, &sampler_binding,
+                                 &sampler_array_index);
+   }
+
+   const struct panvk2_descriptor_set_binding_layout *sampler_binding_layout =
+      get_binding_layout(sampler_set, sampler_binding, ctx);
+   unsigned sampler_desc_index_imm;
+   nir_def *sampler_desc_index;
+   build_desc_index(b, sampler_set, sampler_binding_layout, sampler_array_index,
+                    VK_DESCRIPTOR_TYPE_SAMPLER, &sampler_desc_index_imm,
+                    &sampler_desc_index);
+
+   tex->sampler_index = pan_res_handle(sampler_set, sampler_desc_index_imm);
+
+   if (sampler_desc_index != NULL) {
+      nir_tex_instr_add_src(tex, nir_tex_src_sampler_offset,
+                            sampler_desc_index);
+   }
+
+   const struct panvk2_descriptor_set_binding_layout *tex_binding_layout =
+      get_binding_layout(tex_set, tex_binding, ctx);
+   unsigned tex_desc_index_imm;
+   nir_def *tex_desc_index;
+   build_desc_index(b, tex_set, tex_binding_layout, tex_array_index,
+                    VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &tex_desc_index_imm,
+                    &tex_desc_index);
+
+   tex->texture_index = pan_res_handle(tex_set, tex_desc_index_imm);
+
+   if (tex_desc_index != NULL) {
+      nir_tex_instr_add_src(tex, nir_tex_src_texture_offset, tex_desc_index);
+   }
+
+   return true;
 }
 
 static bool
