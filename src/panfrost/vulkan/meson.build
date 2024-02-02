@@ -59,6 +59,7 @@ foreach arch : [6, 7, 10]
   _sources = [
     panvk_entrypoints[0],
     'panvk_vX_device.c',
+    'panvk_vX_image_view.c',
     'panvk_vX_sampler.c',
   ]
 
@@ -68,7 +69,6 @@ foreach arch : [6, 7, 10]
       'bifrost/panvk_vX_buffer_view.c',
       'bifrost/panvk_vX_descriptor_set.c',
       'bifrost/panvk_vX_descriptor_set_layout.c',
-      'bifrost/panvk_vX_image_view.c',
       'bifrost/panvk_vX_meta.c',
       'bifrost/panvk_vX_meta_blit.c',
       'bifrost/panvk_vX_meta_copy.c',
