@@ -58,6 +58,7 @@ panvk_per_arch_libs = []
 foreach arch : [6, 7, 10]
   _sources = [
     panvk_entrypoints[0],
+    'panvk_vX_buffer_view.c',
     'panvk_vX_device.c',
     'panvk_vX_image_view.c',
     'panvk_vX_sampler.c',
@@ -66,7 +67,6 @@ foreach arch : [6, 7, 10]
   if arch < 9
     # Bifrost
     _sources += [
-      'bifrost/panvk_vX_buffer_view.c',
       'bifrost/panvk_vX_descriptor_set.c',
       'bifrost/panvk_vX_descriptor_set_layout.c',
       'bifrost/panvk_vX_meta.c',
