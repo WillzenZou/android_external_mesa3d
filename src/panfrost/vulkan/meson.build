@@ -80,6 +80,7 @@ foreach arch : [6, 7, 10]
   else
     # Valhall
     _sources += [
+      'valhall/panvk_vX_buffer_view.c',
       'valhall/panvk_vX_descriptor_set.c',
       'valhall/panvk_vX_image_view.c',
       'valhall/panvk_vX_meta_copy.c',
