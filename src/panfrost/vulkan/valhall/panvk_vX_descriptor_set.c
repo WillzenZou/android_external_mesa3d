@@ -26,23 +26,6 @@
 #include "panvk_private.h"
 
 VkResult
-panvk_per_arch(CreateDescriptorSetLayout)(
-   VkDevice _device, const VkDescriptorSetLayoutCreateInfo *pCreateInfo,
-   const VkAllocationCallbacks *pAllocator, VkDescriptorSetLayout *pSetLayout)
-{
-   panvk_stub();
-   return VK_SUCCESS;
-}
-
-void
-panvk_per_arch(GetDescriptorSetLayoutSupport)(
-   VkDevice _device, const VkDescriptorSetLayoutCreateInfo *pCreateInfo,
-   VkDescriptorSetLayoutSupport *pSupport)
-{
-   panvk_stub();
-}
-
-VkResult
 panvk_per_arch(CreatePipelineLayout)(
    VkDevice _device, const VkPipelineLayoutCreateInfo *pCreateInfo,
    const VkAllocationCallbacks *pAllocator, VkPipelineLayout *pPipelineLayout)
