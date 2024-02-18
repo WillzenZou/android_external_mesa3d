@@ -122,7 +122,7 @@ __gen_unpack_padded(const uint8_t *restrict cl, uint32_t start, uint32_t end)
    for (struct PREFIX1(T) name = { PREFIX2(T, header) }, \\
         *_loop_terminate = (void *) (dst);                  \\
         __builtin_expect(_loop_terminate != NULL, 1);       \\
-        ({ PREFIX2(T, pack)((uint32_t *) (dst), &name);  \\
+        ({ PREFIX2(T, pack)((uint32_t *) _loop_terminate, &name);  \\
            _loop_terminate = NULL; }))
 
 #define pan_unpack(src, T, name)                        \\
