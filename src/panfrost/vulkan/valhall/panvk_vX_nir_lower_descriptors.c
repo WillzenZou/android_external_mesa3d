@@ -487,6 +487,32 @@ lower_image_intrin(nir_builder *b, nir_intrinsic_instr *intrin,
 }
 
 static bool
+lower_input_intrin(nir_builder *b, nir_intrinsic_instr *intrin,
+                   const struct lower_descriptors_ctx *ctx)
+{
+   /* We always use heap-based varying allocation when IDVS is used on Valhall. */
+   bool malloc_idvs = !ctx->compile_inputs->no_idvs;
+
+   /* All vertex attributes come from the driver descriptor set starting at
+    * vertex_attribs. Fragment inputs come from it too, unless they've been
+    * allocated on the heap.
+    */
+   if (b->shader->info.stage == MESA_SHADER_VERTEX ||
+       (b->shader->info.stage == MESA_SHADER_FRAGMENT && !malloc_idvs)) {
+      const unsigned attribute_base_index =
+         panvk2_driver_descriptor_set_idx(vertex_attribs[0]);
+
+      nir_intrinsic_set_base(
+         intrin,
+         pan_res_handle(PANVK_DRIVER_DESC_SET,
+                        attribute_base_index + nir_intrinsic_base(intrin)));
+      return true;
+   }
+
+   return false;
+}
+
+static bool
 lower_intrinsic(nir_builder *b, nir_intrinsic_instr *intrin,
                 struct lower_descriptors_ctx *ctx)
 {
@@ -504,6 +530,9 @@ lower_intrinsic(nir_builder *b, nir_intrinsic_instr *intrin,
    case nir_intrinsic_image_deref_samples:
    case nir_intrinsic_image_deref_texel_address:
       return lower_image_intrin(b, intrin, ctx);
+
+   case nir_intrinsic_load_input:
+      return lower_input_intrin(b, intrin, ctx);
 
    default:
       return false;
