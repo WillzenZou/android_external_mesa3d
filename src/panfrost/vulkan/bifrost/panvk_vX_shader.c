@@ -306,7 +306,13 @@ panvk_per_arch(shader_create)(struct panvk_device *dev, gl_shader_stage stage,
    };
    NIR_PASS_V(nir, nir_lower_tex, &lower_tex_options);
 
-   NIR_PASS_V(nir, panvk_per_arch(nir_lower_descriptors), dev, layout,
+   struct panvk_lower_desc_inputs lower_inputs = {
+      .dev = dev,
+      .compile_inputs = &inputs,
+      .layout = layout,
+   };
+
+   NIR_PASS_V(nir, panvk_per_arch(nir_lower_descriptors), &lower_inputs,
               &shader->has_img_access);
 
    NIR_PASS_V(nir, nir_lower_explicit_io, nir_var_mem_ubo,

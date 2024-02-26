@@ -81,8 +81,14 @@ void panvk_per_arch(shader_destroy)(struct panvk_device *dev,
                                     struct panvk_shader *shader,
                                     const VkAllocationCallbacks *alloc);
 
+struct panvk_lower_desc_inputs {
+   const struct panvk_device *dev;
+   const struct panfrost_compile_inputs *compile_inputs;
+   const struct panvk_pipeline_layout *layout;
+};
+
 bool panvk_per_arch(nir_lower_descriptors)(
-   struct nir_shader *nir, struct panvk_device *dev,
-   const struct panvk_pipeline_layout *layout, bool *has_img_access_out);
+   struct nir_shader *nir, const struct panvk_lower_desc_inputs *inputs,
+   bool *has_img_access_out);
 
 #endif

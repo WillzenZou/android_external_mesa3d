@@ -561,15 +561,15 @@ lower_descriptors_instr(nir_builder *b, nir_instr *instr, void *data)
 }
 
 bool
-panvk_per_arch(nir_lower_descriptors)(nir_shader *nir, struct panvk_device *dev,
-                                      const struct panvk_pipeline_layout *layout,
-                                      bool *has_img_access_out)
+panvk_per_arch(nir_lower_descriptors)(
+   nir_shader *nir, const struct panvk_lower_desc_inputs *inputs,
+   bool *has_img_access_out)
 {
    struct apply_descriptors_ctx ctx = {
-      .layout = layout,
+      .layout = inputs->layout,
       .desc_addr_format = nir_address_format_32bit_index_offset,
       .ubo_addr_format = nir_address_format_32bit_index_offset,
-      .ssbo_addr_format = dev->vk.enabled_features.robustBufferAccess
+      .ssbo_addr_format = inputs->dev->vk.enabled_features.robustBufferAccess
                              ? nir_address_format_64bit_bounded_global
                              : nir_address_format_64bit_global_32bit_offset,
    };
