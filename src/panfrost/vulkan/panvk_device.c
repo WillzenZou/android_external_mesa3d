@@ -888,8 +888,8 @@ struct panvk_priv_bo *panvk_priv_bo_create(struct panvk_device *dev,
    if (!priv_bo)
       return NULL;
 
-   struct pan_kmod_bo *bo =
-      pan_kmod_bo_alloc(dev->kmod.dev, dev->kmod.vm, size, flags);
+   struct pan_kmod_bo *bo = pan_kmod_bo_alloc(dev->kmod.dev, dev->kmod.vm,
+                                              ALIGN_POT(size, 4096), flags);
    if (!bo)
       goto err_free_priv_bo;
 
