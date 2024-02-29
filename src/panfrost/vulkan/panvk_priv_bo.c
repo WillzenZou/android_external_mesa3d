@@ -26,8 +26,8 @@ panvk_priv_bo_create(struct panvk_device *dev, size_t size, uint32_t flags,
    if (!priv_bo)
       return NULL;
 
-   struct pan_kmod_bo *bo =
-      pan_kmod_bo_alloc(dev->kmod.dev, dev->kmod.vm, size, flags);
+   struct pan_kmod_bo *bo = pan_kmod_bo_alloc(dev->kmod.dev, dev->kmod.vm,
+                                              ALIGN_POT(size, 4096), flags);
    if (!bo)
       goto err_free_priv_bo;
 
