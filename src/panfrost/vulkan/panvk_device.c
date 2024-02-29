@@ -1085,10 +1085,12 @@ panvk_CreateDevice(VkPhysicalDevice physicalDevice,
       pan_kmod_vm_create(device->kmod.dev, PAN_KMOD_VM_FLAG_AUTO_VA,
                          user_va_start, user_va_end - user_va_start);
 
-   device->tiler_heap = panvk_priv_bo_create(
-      device, 128 * 1024 * 1024,
-      PAN_KMOD_BO_FLAG_NO_MMAP | PAN_KMOD_BO_FLAG_ALLOC_ON_FAULT,
-      &device->vk.alloc, VK_SYSTEM_ALLOCATION_SCOPE_DEVICE);
+   if (arch < 10) {
+      device->tiler_heap = panvk_priv_bo_create(
+         device, 128 * 1024 * 1024,
+         PAN_KMOD_BO_FLAG_NO_MMAP | PAN_KMOD_BO_FLAG_ALLOC_ON_FAULT,
+         &device->vk.alloc, VK_SYSTEM_ALLOCATION_SCOPE_DEVICE);
+   }
 
    device->sample_positions = panvk_priv_bo_create(
       device, panfrost_sample_positions_buffer_size(), 0,
