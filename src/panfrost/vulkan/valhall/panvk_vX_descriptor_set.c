@@ -491,6 +491,63 @@ panvk_per_arch(descriptor_set_update)(const VkWriteDescriptorSet *write)
    return VK_SUCCESS;
 }
 
+static VkResult
+panvk_per_arch(descriptor_set_copy)(const VkCopyDescriptorSet *copy)
+{
+   VK_FROM_HANDLE(panvk2_descriptor_set, src_set, copy->srcSet);
+   VK_FROM_HANDLE(panvk2_descriptor_set, dst_set, copy->dstSet);
+
+   const struct panvk2_descriptor_set_binding_layout *dst_binding_layout =
+      &dst_set->layout->bindings[copy->dstBinding];
+   const struct panvk2_descriptor_set_binding_layout *src_binding_layout =
+      &src_set->layout->bindings[copy->srcBinding];
+
+   assert(dst_binding_layout->type == src_binding_layout->type);
+
+   switch (src_binding_layout->type) {
+   case VK_DESCRIPTOR_TYPE_SAMPLER:
+   case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+   case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+   case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+   case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
+   case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+   case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
+   case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+   case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+      for (uint32_t i = 0; i < copy->descriptorCount; i++) {
+         void *dst = get_desc_slot_ptr(dst_set, copy->dstBinding,
+                                       copy->dstArrayElement + i,
+                                       dst_binding_layout->type);
+         const void *src = get_desc_slot_ptr(src_set, copy->srcBinding,
+                                             copy->srcArrayElement + i,
+                                             src_binding_layout->type);
+
+         memcpy(dst, src,
+                PANVK_DESCRIPTOR_SIZE *
+                   panvk2_get_desc_stride(src_binding_layout->type));
+      }
+      break;
+
+   case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+   case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+      uint32_t dst_dyn_buf_idx =
+         dst_binding_layout->dyn_buf_idx + copy->dstArrayElement;
+      uint32_t src_dyn_buf_idx =
+         src_binding_layout->dyn_buf_idx + copy->srcArrayElement;
+
+      memcpy(
+         &dst_set->dyn_bufs[dst_dyn_buf_idx],
+         &src_set->dyn_bufs[src_dyn_buf_idx],
+         copy->descriptorCount * sizeof(dst_set->dyn_bufs[dst_dyn_buf_idx]));
+      break;
+
+   default:
+      unreachable("Unsupported descriptor type");
+   }
+
+   return VK_SUCCESS;
+}
+
 void
 panvk_per_arch(UpdateDescriptorSets)(
    VkDevice _device, uint32_t descriptorWriteCount,
@@ -499,6 +556,9 @@ panvk_per_arch(UpdateDescriptorSets)(
 {
    for (uint32_t i = 0; i < descriptorWriteCount; i++)
       panvk_per_arch(descriptor_set_update)(&pDescriptorWrites[i]);
+
+   for (uint32_t i = 0; i < descriptorCopyCount; i++)
+      panvk_per_arch(descriptor_set_copy)(&pDescriptorCopies[i]);
 }
 
 static void
