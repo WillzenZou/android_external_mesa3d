@@ -61,4 +61,25 @@ panvk2_get_desc_stride(VkDescriptorType type)
       return 1;
 }
 
+static inline uint32_t
+panvk2_get_desc_index(const struct panvk2_descriptor_set_binding_layout *layout,
+                      uint32_t elem, VkDescriptorType type)
+{
+   assert(layout->type == type ||
+          (layout->type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER &&
+           (type == VK_DESCRIPTOR_TYPE_SAMPLER ||
+            type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)));
+
+   uint32_t desc_idx =
+      layout->desc_idx + elem * panvk2_get_desc_stride(layout->type);
+
+   /* In case of combined and if asking for a sampled image, we need to
+    * increment the index as the texture desciptor is right after the sampler */
+   if (layout->type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER &&
+       type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)
+      desc_idx++;
+
+   return desc_idx;
+}
+
 #endif /* PANVK_VX_DESCRIPTOR_SET_LAYOUT_H */
