@@ -503,27 +503,94 @@ panvk_per_arch(UpdateDescriptorSets)(
       panvk_per_arch(descriptor_set_update)(&pDescriptorWrites[i]);
 }
 
+static void
+panvk_per_arch(descriptor_set_write_template)(
+   struct panvk2_descriptor_set *set,
+   const struct vk_descriptor_update_template *template, const void *data)
+{
+   for (uint32_t i = 0; i < template->entry_count; i++) {
+      const struct vk_descriptor_template_entry *entry = &template->entries[i];
+
+      switch (entry->type) {
+      case VK_DESCRIPTOR_TYPE_SAMPLER:
+         for (uint32_t j = 0; j < entry->array_count; j++) {
+            const VkDescriptorImageInfo *info =
+               data + entry->offset + j * entry->stride;
+
+            write_sampler_desc(set, info, entry->binding,
+                               entry->array_element + j);
+         }
+         break;
+
+      case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+         for (uint32_t j = 0; j < entry->array_count; j++) {
+            const VkDescriptorImageInfo *info =
+               data + entry->offset + j * entry->stride;
+            write_sampler_desc(set, info, entry->binding,
+                               entry->array_element + j);
+            write_image_view_desc(set, info, entry->binding,
+                                  entry->array_element + j);
+         }
+         break;
+
+      case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+      case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+      case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
+         for (uint32_t j = 0; j < entry->array_count; j++) {
+            const VkDescriptorImageInfo *info =
+               data + entry->offset + j * entry->stride;
+
+            write_image_view_desc(set, info, entry->binding,
+                                  entry->array_element + j);
+         }
+         break;
+
+      case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+      case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
+         for (uint32_t j = 0; j < entry->array_count; j++) {
+            const VkBufferView *bview =
+               data + entry->offset + j * entry->stride;
+
+            write_buffer_view_desc(set, *bview, entry->binding,
+                                   entry->array_element + j);
+         }
+         break;
+
+      case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+      case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+         for (uint32_t j = 0; j < entry->array_count; j++) {
+            const VkDescriptorBufferInfo *info =
+               data + entry->offset + j * entry->stride;
+
+            write_buffer_desc(set, info, entry->binding,
+                              entry->array_element + j);
+         }
+         break;
+
+      case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+      case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+         for (uint32_t j = 0; j < entry->array_count; j++) {
+            const VkDescriptorBufferInfo *info =
+               data + entry->offset + j * entry->stride;
+
+            write_dynamic_buffer_desc(set, info, entry->binding,
+                                      entry->array_element + j);
+         }
+         break;
+      default:
+         unreachable("Unsupported descriptor type");
+      }
+   }
+}
+
 void
 panvk_per_arch(UpdateDescriptorSetWithTemplate)(
    VkDevice _device, VkDescriptorSet descriptorSet,
-   VkDescriptorUpdateTemplate descriptorUpdateTemplate, const void *data)
+   VkDescriptorUpdateTemplate descriptorUpdateTemplate, const void *pData)
 {
    VK_FROM_HANDLE(panvk2_descriptor_set, set, descriptorSet);
    VK_FROM_HANDLE(vk_descriptor_update_template, template,
                   descriptorUpdateTemplate);
 
-   const struct panvk2_descriptor_set_layout *layout = set->layout;
-
-   for (uint32_t i = 0; i < template->entry_count; i++) {
-      const struct vk_descriptor_template_entry *entry = &template->entries[i];
-      const struct panvk2_descriptor_set_binding_layout *binding_layout =
-         &layout->bindings[entry->binding];
-
-      for (uint32_t j = 0; j < entry->array_count; j++) {
-         const void *data_entry = data + entry->offset +
-            j * panvk2_get_desc_stride(binding_layout->type) *
-            PANVK_DESCRIPTOR_SIZE;
-         write_desc(set, entry->binding, entry->array_element + j, data_entry);
-      }
-   }
+   panvk_per_arch(descriptor_set_write_template)(set, template, pData);
 }
