@@ -15,6 +15,7 @@
 #include "vk_descriptor_set_layout.h"
 
 #include "genxml/gen_macros.h"
+#include "panvk_vX_driver_descriptor_set.h"
 
 struct panvk2_descriptor_set_binding_layout {
    VkDescriptorType type;
@@ -62,6 +63,20 @@ panvk2_get_desc_stride(VkDescriptorType type)
 }
 
 static inline uint32_t
+panvk2_get_dyn_desc_index(
+   const struct panvk2_descriptor_set_binding_layout *layout, uint32_t set,
+   uint32_t elem)
+{
+   assert(layout->type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC ||
+          layout->type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC);
+
+   assert(set < MAX_SETS && layout->dyn_buf_idx + elem < MAX_DYNAMIC_BUFFERS);
+
+   return panvk2_driver_descriptor_set_idx(dynamic_buffers[0]) +
+          (set * MAX_DYNAMIC_BUFFERS) + layout->dyn_buf_idx + elem;
+}
+
+static inline uint32_t
 panvk2_get_desc_index(const struct panvk2_descriptor_set_binding_layout *layout,
                       uint32_t elem, VkDescriptorType type)
 {
@@ -69,6 +84,9 @@ panvk2_get_desc_index(const struct panvk2_descriptor_set_binding_layout *layout,
           (layout->type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER &&
            (type == VK_DESCRIPTOR_TYPE_SAMPLER ||
             type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)));
+
+   assert(layout->type != VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC &&
+          layout->type != VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC);
 
    uint32_t desc_idx =
       layout->desc_idx + elem * panvk2_get_desc_stride(layout->type);
