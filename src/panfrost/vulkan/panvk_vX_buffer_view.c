@@ -98,12 +98,14 @@ panvk_per_arch(CreateBufferView)(VkDevice _device,
       view->bo = panvk_priv_bo_create(device, bo_size, 0, pAllocator,
                                       VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
 
-      struct panfrost_ptr ptr = {
-         .gpu = view->bo->addr.dev,
-         .cpu = view->bo->addr.host,
-      };
+      if (view->bo) {
+         struct panfrost_ptr ptr = {
+            .gpu = view->bo->addr.dev,
+            .cpu = view->bo->addr.host,
+         };
 
-      GENX(panfrost_new_texture)(&pview, view->descs.tex.opaque, &ptr);
+         GENX(panfrost_new_texture)(&pview, view->descs.tex.opaque, &ptr);
+      }
    }
 
 #if PAN_ARCH <= 7
