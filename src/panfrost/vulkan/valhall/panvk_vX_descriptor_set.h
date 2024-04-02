@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef PAN_ARCH
-#error "no arch"
-#endif
-
 #ifndef PANVK_VX_DESCRIPTOR_SET_H
 #define PANVK_VX_DESCRIPTOR_SET_H
+
+#ifndef PAN_ARCH
+#error "panvk_vX_descriptor_set.h is a per-gen header"
+#endif
 
 #include <stdint.h>
 
@@ -25,7 +25,7 @@ struct panvk_priv_bo;
 struct panvk_sysvals;
 struct panvk_descriptor_set_layout;
 
-struct panvk2_descriptor_set {
+struct panvk_descriptor_set {
    struct vk_object_base base;
    struct panvk_descriptor_set_layout *layout;
    struct {
@@ -42,10 +42,10 @@ struct panvk2_descriptor_set {
    unsigned num_descs;
 };
 
-VK_DEFINE_NONDISP_HANDLE_CASTS(panvk2_descriptor_set, base, VkDescriptorSet,
+VK_DEFINE_NONDISP_HANDLE_CASTS(panvk_descriptor_set, base, VkDescriptorSet,
                                VK_OBJECT_TYPE_DESCRIPTOR_SET)
 
-struct panvk2_descriptor_pool {
+struct panvk_descriptor_pool {
    struct vk_object_base base;
    struct panvk_priv_bo *desc_bo;
    struct util_vma_heap desc_heap;
@@ -54,10 +54,10 @@ struct panvk2_descriptor_pool {
    BITSET_WORD *free_sets;
 
    uint32_t max_sets;
-   struct panvk2_descriptor_set *sets;
+   struct panvk_descriptor_set *sets;
 };
 
-VK_DEFINE_NONDISP_HANDLE_CASTS(panvk2_descriptor_pool, base, VkDescriptorPool,
+VK_DEFINE_NONDISP_HANDLE_CASTS(panvk_descriptor_pool, base, VkDescriptorPool,
                                VK_OBJECT_TYPE_DESCRIPTOR_POOL)
 
 #endif /* PANVK_VX_DESCRIPTOR_SET_H */
