@@ -36,7 +36,7 @@ panvk_per_arch(queue_init)(struct panvk_device *device,
       return result;
 
    int ret = drmSyncobjCreate(device->vk.drm_fd, DRM_SYNCOBJ_CREATE_SIGNALED,
-                              &queue->sync);
+                              &queue->sync.handle);
    if (ret) {
       vk_queue_finish(&queue->vk);
       return VK_ERROR_OUT_OF_HOST_MEMORY;

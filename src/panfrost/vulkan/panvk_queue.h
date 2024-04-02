@@ -14,12 +14,11 @@
 
 #include "vk_queue.h"
 
-struct panvk_queue {
-   struct vk_queue vk;
-   uint32_t sync;
-};
-
-VK_DEFINE_HANDLE_CASTS(panvk_queue, vk.base, VkQueue, VK_OBJECT_TYPE_QUEUE)
+#if PAN_ARCH >= 10
+#include "csf/panvk_vX_queue.h"
+#else
+#include "jm/panvk_vX_queue.h"
+#endif
 
 static inline struct panvk_device *
 panvk_queue_get_device(const struct panvk_queue *queue)
@@ -33,7 +32,11 @@ panvk_queue_finish(struct panvk_queue *queue)
    struct panvk_device *dev = panvk_queue_get_device(queue);
 
    vk_queue_finish(&queue->vk);
+#if PAN_ARCH >= 10
+   drmSyncobjDestroy(dev->vk.drm_fd, queue->sync.handle);
+#else
    drmSyncobjDestroy(dev->vk.drm_fd, queue->sync);
+#endif
 }
 
 VkResult panvk_per_arch(queue_init)(struct panvk_device *device,
