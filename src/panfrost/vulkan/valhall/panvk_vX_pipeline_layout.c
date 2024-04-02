@@ -24,8 +24,7 @@
 #include "panvk_device.h"
 #include "panvk_entrypoints.h"
 #include "panvk_macros.h"
-
-#include "valhall/panvk_vX_pipeline_layout.h"
+#include "panvk_pipeline_layout.h"
 
 VkResult
 panvk_per_arch(CreatePipelineLayout)(
@@ -33,10 +32,10 @@ panvk_per_arch(CreatePipelineLayout)(
    const VkAllocationCallbacks *pAllocator, VkPipelineLayout *pPipelineLayout)
 {
    VK_FROM_HANDLE(panvk_device, device, _device);
-   struct panvk2_pipeline_layout *playout;
+   struct panvk_pipeline_layout *playout;
    struct mesa_sha1 ctx;
 
-   assert(pCreateInfo->setLayoutCount <= PANVK_MAX_DESCRIPTOR_SETS);
+   assert(pCreateInfo->setLayoutCount <= MAX_SETS);
 
    playout =
       vk_pipeline_layout_zalloc(&device->vk, sizeof(*playout), pCreateInfo);
@@ -76,6 +75,6 @@ panvk_per_arch(CreatePipelineLayout)(
 
    _mesa_sha1_final(&ctx, playout->sha1);
 
-   *pPipelineLayout = panvk2_pipeline_layout_to_handle(playout);
+   *pPipelineLayout = panvk_pipeline_layout_to_handle(playout);
    return VK_SUCCESS;
 }
