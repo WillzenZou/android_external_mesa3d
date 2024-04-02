@@ -3,12 +3,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef PAN_ARCH
-#error "no arch"
-#endif
-
 #ifndef PANVK_VX_DESCRIPTOR_SET_LAYOUT_H
 #define PANVK_VX_DESCRIPTOR_SET_LAYOUT_H
+
+#ifndef PAN_ARCH
+#error "panvk_vX_descriptor_set_layout.h is a per-gen header"
+#endif
 
 #include <stdint.h>
 
@@ -17,7 +17,7 @@
 #include "genxml/gen_macros.h"
 #include "panvk_vX_driver_descriptor_set.h"
 
-struct panvk2_descriptor_set_binding_layout {
+struct panvk_descriptor_set_binding_layout {
    VkDescriptorType type;
    VkDescriptorBindingFlags flags;
    unsigned array_size;
@@ -28,7 +28,7 @@ struct panvk2_descriptor_set_binding_layout {
    struct mali_sampler_packed *immutable_samplers;
 };
 
-struct panvk2_descriptor_set_layout {
+struct panvk_descriptor_set_layout {
    struct vk_descriptor_set_layout vk;
    unsigned char sha1[20];
    unsigned num_descs;
@@ -38,20 +38,14 @@ struct panvk2_descriptor_set_layout {
    uint32_t binding_count;
 
    /* Bindings in this descriptor set */
-   struct panvk2_descriptor_set_binding_layout *bindings;
+   struct panvk_descriptor_set_binding_layout *bindings;
 
    unsigned first_sampler_desc_idx;
 };
 
-VK_DEFINE_NONDISP_HANDLE_CASTS(panvk2_descriptor_set_layout, vk.base,
+VK_DEFINE_NONDISP_HANDLE_CASTS(panvk_descriptor_set_layout, vk.base,
                                VkDescriptorSetLayout,
                                VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT)
-
-static inline const struct panvk2_descriptor_set_layout *
-vk_to_panvk2_descriptor_set_layout(const struct vk_descriptor_set_layout *layout)
-{
-   return container_of(layout, const struct panvk2_descriptor_set_layout, vk);
-}
 
 static inline const uint32_t
 panvk2_get_desc_stride(VkDescriptorType type)
@@ -64,7 +58,7 @@ panvk2_get_desc_stride(VkDescriptorType type)
 
 static inline uint32_t
 panvk2_get_dyn_desc_index(
-   const struct panvk2_descriptor_set_binding_layout *layout, uint32_t set,
+   const struct panvk_descriptor_set_binding_layout *layout, uint32_t set,
    uint32_t elem)
 {
    assert(layout->type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC ||
@@ -77,7 +71,7 @@ panvk2_get_dyn_desc_index(
 }
 
 static inline uint32_t
-panvk2_get_desc_index(const struct panvk2_descriptor_set_binding_layout *layout,
+panvk2_get_desc_index(const struct panvk_descriptor_set_binding_layout *layout,
                       uint32_t elem, VkDescriptorType type)
 {
    assert(layout->type == type ||

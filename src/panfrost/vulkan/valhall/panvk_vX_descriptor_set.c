@@ -33,7 +33,6 @@
 #include "panvk_priv_bo.h"
 #include "panvk_sampler.h"
 #include "valhall/panvk_vX_descriptor_set.h"
-#include "valhall/panvk_vX_descriptor_set_layout.h"
 
 static inline const bool
 is_dynamic_buffer(VkDescriptorType type)
@@ -46,7 +45,7 @@ static void *
 get_desc_slot_ptr(struct panvk2_descriptor_set *set, uint32_t binding,
                   uint32_t elem, VkDescriptorType type)
 {
-   const struct panvk2_descriptor_set_binding_layout *binding_layout =
+   const struct panvk_descriptor_set_binding_layout *binding_layout =
       &set->layout->bindings[binding];
 
    uint32_t offset = panvk2_get_desc_index(binding_layout, elem, type);
@@ -69,7 +68,7 @@ write_sampler_desc(struct panvk2_descriptor_set *set,
                    const VkDescriptorImageInfo *const pImageInfo,
                    uint32_t binding, uint32_t elem)
 {
-   const struct panvk2_descriptor_set_binding_layout *binding_layout =
+   const struct panvk_descriptor_set_binding_layout *binding_layout =
       &set->layout->bindings[binding];
 
    if (binding_layout->immutable_samplers)
@@ -121,7 +120,7 @@ write_dynamic_buffer_desc(struct panvk2_descriptor_set *set,
                           uint32_t binding, uint32_t elem)
 {
    VK_FROM_HANDLE(panvk_buffer, buffer, info->buffer);
-   const struct panvk2_descriptor_set_binding_layout *binding_layout =
+   const struct panvk_descriptor_set_binding_layout *binding_layout =
       &set->layout->bindings[binding];
    uint32_t dyn_buf_idx = binding_layout->dyn_buf_idx + elem;
    const uint64_t range =
@@ -252,7 +251,7 @@ static void
 desc_set_write_immutable_samplers(struct panvk2_descriptor_set *set,
                                   uint32_t variable_count)
 {
-   const struct panvk2_descriptor_set_layout *layout = set->layout;
+   const struct panvk_descriptor_set_layout *layout = set->layout;
 
    /* Always write the sampler used as a dummy sampler, even if it's backed
     * by a mutable sampler. This way we always have a valid sampler desc to
@@ -301,7 +300,7 @@ desc_set_write_immutable_samplers(struct panvk2_descriptor_set *set,
 
 static VkResult
 panvk2_desc_pool_allocate_set(struct panvk2_descriptor_pool *pool,
-                              struct panvk2_descriptor_set_layout *layout,
+                              struct panvk_descriptor_set_layout *layout,
                               uint32_t variable_count,
                               struct panvk2_descriptor_set **out)
 {
@@ -368,7 +367,7 @@ panvk_per_arch(AllocateDescriptorSets)(
 
    /* allocate a set of buffers for each shader to contain descriptors */
    for (i = 0; i < pAllocateInfo->descriptorSetCount; i++) {
-      VK_FROM_HANDLE(panvk2_descriptor_set_layout, layout,
+      VK_FROM_HANDLE(panvk_descriptor_set_layout, layout,
                      pAllocateInfo->pSetLayouts[i]);
       /* If descriptorSetCount is zero or this structure is not included in
        * the pNext chain, then the variable lengths are considered to be zero.
@@ -497,9 +496,9 @@ panvk_per_arch(descriptor_set_copy)(const VkCopyDescriptorSet *copy)
    VK_FROM_HANDLE(panvk2_descriptor_set, src_set, copy->srcSet);
    VK_FROM_HANDLE(panvk2_descriptor_set, dst_set, copy->dstSet);
 
-   const struct panvk2_descriptor_set_binding_layout *dst_binding_layout =
+   const struct panvk_descriptor_set_binding_layout *dst_binding_layout =
       &dst_set->layout->bindings[copy->dstBinding];
-   const struct panvk2_descriptor_set_binding_layout *src_binding_layout =
+   const struct panvk_descriptor_set_binding_layout *src_binding_layout =
       &src_set->layout->bindings[copy->srcBinding];
 
    assert(dst_binding_layout->type == src_binding_layout->type);

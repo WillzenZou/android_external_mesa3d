@@ -23,11 +23,11 @@
 
 struct panvk_priv_bo;
 struct panvk_sysvals;
-struct panvk2_descriptor_set_layout;
+struct panvk_descriptor_set_layout;
 
 struct panvk2_descriptor_set {
    struct vk_object_base base;
-   struct panvk2_descriptor_set_layout *layout;
+   struct panvk_descriptor_set_layout *layout;
    struct {
       uint64_t dev;
       void *host;

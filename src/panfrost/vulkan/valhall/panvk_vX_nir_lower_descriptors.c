@@ -21,8 +21,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include "panvk_descriptor_set_layout.h"
 #include "panvk_vX_descriptor_set.h"
-#include "panvk_vX_descriptor_set_layout.h"
 #include "panvk_vX_driver_descriptor_set.h"
 
 #include "nir.h"
@@ -36,23 +36,23 @@ struct lower_descriptors_ctx {
    bool has_img_access;
 };
 
-static const struct panvk2_descriptor_set_layout *
+static const struct panvk_descriptor_set_layout *
 get_set_layout(unsigned set, const struct lower_descriptors_ctx *ctx)
 {
    const struct vk_pipeline_layout *layout = &ctx->layout->vk;
 
    assert(set < layout->set_count);
-   const struct panvk2_descriptor_set_layout *set_layout =
-      vk_to_panvk2_descriptor_set_layout(layout->set_layouts[set]);
+   const struct panvk_descriptor_set_layout *set_layout =
+      vk_to_panvk_descriptor_set_layout(layout->set_layouts[set]);
 
    return set_layout;
 }
 
-static const struct panvk2_descriptor_set_binding_layout *
+static const struct panvk_descriptor_set_binding_layout *
 get_binding_layout(unsigned set, unsigned binding,
                    const struct lower_descriptors_ctx *ctx)
 {
-   const struct panvk2_descriptor_set_layout *set_layout =
+   const struct panvk_descriptor_set_layout *set_layout =
       get_set_layout(set, ctx);
 
    assert(binding < set_layout->binding_count);
@@ -79,7 +79,7 @@ get_resource_deref_binding(nir_builder *b, nir_deref_instr *deref,
 
 static void
 build_desc_index(nir_builder *b, unsigned set,
-                 const struct panvk2_descriptor_set_binding_layout *layout,
+                 const struct panvk_descriptor_set_binding_layout *layout,
                  nir_def *array_index, VkDescriptorType type,
                  unsigned *desc_index_imm, nir_def **desc_index)
 {
@@ -115,7 +115,7 @@ static nir_def *
 build_index(nir_builder *b, unsigned set, unsigned binding,
             nir_def *array_index, const struct lower_descriptors_ctx *ctx)
 {
-   const struct panvk2_descriptor_set_binding_layout *binding_layout =
+   const struct panvk_descriptor_set_binding_layout *binding_layout =
       get_binding_layout(set, binding, ctx);
 
    unsigned target_set;
@@ -150,7 +150,7 @@ static nir_def *
 build_res_index(nir_builder *b, unsigned set, unsigned binding,
                 nir_def *array_index, const struct lower_descriptors_ctx *ctx)
 {
-   const struct panvk2_descriptor_set_binding_layout *binding_layout =
+   const struct panvk_descriptor_set_binding_layout *binding_layout =
       get_binding_layout(set, binding, ctx);
 
    nir_def *index;
@@ -196,7 +196,7 @@ tex_desc_get_index_offset(nir_builder *b, nir_deref_instr *deref,
    unsigned set, binding;
    nir_def *array_index;
    get_resource_deref_binding(b, deref, &set, &binding, &array_index);
-   const struct panvk2_descriptor_set_binding_layout *binding_layout =
+   const struct panvk_descriptor_set_binding_layout *binding_layout =
       get_binding_layout(set, binding, ctx);
 
    const unsigned desc_stride = panvk2_get_desc_stride(binding_layout->type);
@@ -377,7 +377,7 @@ lower_tex(nir_builder *b, nir_tex_instr *tex,
                                  &sampler_array_index);
    }
 
-   const struct panvk2_descriptor_set_binding_layout *sampler_binding_layout =
+   const struct panvk_descriptor_set_binding_layout *sampler_binding_layout =
       get_binding_layout(sampler_set, sampler_binding, ctx);
    unsigned sampler_desc_index_imm;
    nir_def *sampler_desc_index;
@@ -392,7 +392,7 @@ lower_tex(nir_builder *b, nir_tex_instr *tex,
                             sampler_desc_index);
    }
 
-   const struct panvk2_descriptor_set_binding_layout *tex_binding_layout =
+   const struct panvk_descriptor_set_binding_layout *tex_binding_layout =
       get_binding_layout(tex_set, tex_binding, ctx);
    unsigned tex_desc_index_imm;
    nir_def *tex_desc_index;

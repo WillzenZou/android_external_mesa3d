@@ -21,12 +21,12 @@
 
 #include "genxml/gen_macros.h"
 
+#include "panvk_descriptor_set_layout.h"
 #include "panvk_device.h"
 #include "panvk_entrypoints.h"
 #include "panvk_macros.h"
 #include "panvk_pipeline_layout.h"
 #include "panvk_sampler.h"
-#include "valhall/panvk_vX_descriptor_set_layout.h"
 
 #define PANVK_MAX_DESCS_PER_SET   (1 << 24)
 
@@ -143,8 +143,8 @@ panvk_per_arch(CreateDescriptorSetLayout)(
    }
 
    VK_MULTIALLOC(ma);
-   VK_MULTIALLOC_DECL(&ma, struct panvk2_descriptor_set_layout, layout, 1);
-   VK_MULTIALLOC_DECL(&ma, struct panvk2_descriptor_set_binding_layout,
+   VK_MULTIALLOC_DECL(&ma, struct panvk_descriptor_set_layout, layout, 1);
+   VK_MULTIALLOC_DECL(&ma, struct panvk_descriptor_set_binding_layout,
                       binding_layouts, num_bindings);
    VK_MULTIALLOC_DECL(&ma, struct mali_sampler_packed, samplers,
                       immutable_sampler_count);
@@ -176,7 +176,7 @@ panvk_per_arch(CreateDescriptorSetLayout)(
    unsigned dyn_buf_idx = 0;
    for (unsigned i = 0; i < pCreateInfo->bindingCount; i++) {
       const VkDescriptorSetLayoutBinding *binding = &bindings[i];
-      struct panvk2_descriptor_set_binding_layout *binding_layout =
+      struct panvk_descriptor_set_binding_layout *binding_layout =
          &layout->bindings[binding->binding];
 
       if (binding->descriptorCount == 0)
@@ -248,7 +248,7 @@ panvk_per_arch(CreateDescriptorSetLayout)(
    _mesa_sha1_final(&sha1_ctx, layout->sha1);
 
    free(bindings);
-   *pSetLayout = panvk2_descriptor_set_layout_to_handle(layout);
+   *pSetLayout = panvk_descriptor_set_layout_to_handle(layout);
 
    return VK_SUCCESS;
 }

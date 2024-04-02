@@ -20,11 +20,11 @@
 
 #include "genxml/gen_macros.h"
 
+#include "panvk_descriptor_set_layout.h"
 #include "panvk_device.h"
 #include "panvk_entrypoints.h"
 #include "panvk_macros.h"
 
-#include "valhall/panvk_vX_descriptor_set_layout.h"
 #include "valhall/panvk_vX_pipeline_layout.h"
 
 VkResult
@@ -47,15 +47,15 @@ panvk_per_arch(CreatePipelineLayout)(
 
    unsigned desc_idx = 0, dyn_buf_idx = 0;
    for (unsigned set = 0; set < pCreateInfo->setLayoutCount; set++) {
-      const struct panvk2_descriptor_set_layout *set_layout =
-         vk_to_panvk2_descriptor_set_layout(playout->vk.set_layouts[set]);
+      const struct panvk_descriptor_set_layout *set_layout =
+         vk_to_panvk_descriptor_set_layout(playout->vk.set_layouts[set]);
 
       desc_idx += set_layout->num_descs;
       playout->sets[set].dyn_buf_offset = dyn_buf_idx;
       dyn_buf_idx += set_layout->num_dyn_bufs;
 
       for (unsigned b = 0; b < set_layout->binding_count; b++) {
-         const struct panvk2_descriptor_set_binding_layout *binding_layout =
+         const struct panvk_descriptor_set_binding_layout *binding_layout =
             &set_layout->bindings[b];
          _mesa_sha1_update(&ctx, &binding_layout->type,
                            sizeof(binding_layout->type));
