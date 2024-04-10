@@ -14,12 +14,10 @@
 
 #include "vulkan/runtime/vk_command_buffer.h"
 
-#include "panvk_descriptor_set.h"
-#include "panvk_descriptor_set_layout.h"
-#include "panvk_device.h"
 #include "panvk_macros.h"
 #include "panvk_mempool.h"
 #include "panvk_pipeline.h"
+#include "panvk_pipeline_layout.h"
 #include "panvk_shader.h"
 
 #include "pan_jc.h"
@@ -31,6 +29,8 @@
 #define MAX_BIND_POINTS         2 /* compute + graphics */
 #define MAX_VBS                 16
 #define MAX_PUSH_CONSTANTS_SIZE 128
+
+struct panvk_buffer_desc;
 
 struct panvk_batch {
    struct list_head node;

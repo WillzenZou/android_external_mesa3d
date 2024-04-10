@@ -31,6 +31,8 @@
 #include "panvk_buffer.h"
 #include "panvk_cmd_buffer.h"
 #include "panvk_cmd_pool.h"
+#include "panvk_descriptor_set.h"
+#include "panvk_descriptor_set_layout.h"
 #include "panvk_device.h"
 #include "panvk_entrypoints.h"
 #include "panvk_event.h"

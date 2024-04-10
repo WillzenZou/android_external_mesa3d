@@ -18,7 +18,6 @@
 #include "vk_object.h"
 
 #include "panvk_pipeline_layout.h"
-#include "valhall/panvk_vX_pipeline_layout.h"
 
 #define PANVK_DESCRIPTOR_SIZE 32
 

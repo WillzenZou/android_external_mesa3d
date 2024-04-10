@@ -14,7 +14,6 @@
 
 #include "vk_pipeline_layout.h"
 
-#include "panvk_descriptor_set_layout.h"
 #include "panvk_macros.h"
 
 #define MAX_SETS                    4

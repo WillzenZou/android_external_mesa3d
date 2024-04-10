@@ -8,8 +8,6 @@
 
 #include <stdint.h>
 
-#include "panvk_instance.h"
-
 #include "vk_physical_device.h"
 #include "vk_sync.h"
 #include "wsi_common.h"

@@ -11,10 +11,7 @@
 #include "vk_device.h"
 
 #include "bifrost/panvk_meta.h"
-#include "panvk_instance.h"
 #include "panvk_macros.h"
-#include "panvk_mempool.h"
-#include "panvk_physical_device.h"
 
 #include "kmod/pan_kmod.h"
 #include "util/pan_ir.h"
@@ -22,6 +19,8 @@
 #include "pan_blitter.h"
 
 #define PANVK_MAX_QUEUE_FAMILIES 1
+
+struct panvk_physical_device;
 
 struct panvk_device {
    struct vk_device vk;
