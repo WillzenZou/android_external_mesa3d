@@ -28,56 +28,87 @@ panvk_entrypoints = custom_target(
   command : [
     prog_python, '@INPUT0@', '--xml', '@INPUT1@', '--proto', '--weak',
     '--out-h', '@OUTPUT0@', '--out-c', '@OUTPUT1@', '--prefix', 'panvk',
+    '--device-prefix', 'panvk_bifrost',
     '--device-prefix', 'panvk_v6', '--device-prefix', 'panvk_v7',
+    '--device-prefix', 'panvk_valhall',
+    '--device-prefix', 'panvk_v10',
     '--beta', with_vulkan_beta.to_string()
   ],
   depend_files : vk_entrypoints_gen_depend_files,
 )
 
 libpanvk_files = files(
-  'panvk_cmd_buffer.c',
-  'panvk_cs.c',
-  'panvk_device.c',
-  'panvk_descriptor_set.c',
-  'panvk_formats.c',
+  'panvk_buffer.c',
+  'panvk_cmd_pool.c',
+  'panvk_device_memory.c',
+  'panvk_event.c',
   'panvk_image.c',
+  'panvk_instance.c',
   'panvk_mempool.c',
-  'panvk_pass.c',
-  'panvk_pipeline.c',
-  'panvk_pipeline_cache.c',
-  'panvk_private.h',
+  'panvk_physical_device.c',
+  'panvk_priv_bo.c',
   'panvk_query.c',
-  'panvk_shader.c',
   'panvk_wsi.c',
-) + [vk_cmd_enqueue_entrypoints[0], vk_common_entrypoints[0]]
+)
 
 panvk_deps = []
 panvk_flags = []
 panvk_per_arch_libs = []
 
-foreach arch : ['6', '7']
+foreach arch : [6, 7, 10]
+  _sources = [
+    panvk_entrypoints[0],
+    'panvk_vX_buffer_view.c',
+    'panvk_vX_device.c',
+    'panvk_vX_image_view.c',
+    'panvk_vX_sampler.c',
+  ]
+
+  if arch < 9
+    # Bifrost
+    _sources += [
+      'bifrost/panvk_vX_descriptor_set.c',
+      'bifrost/panvk_vX_descriptor_set_layout.c',
+      'bifrost/panvk_vX_meta.c',
+      'bifrost/panvk_vX_meta_blit.c',
+      'bifrost/panvk_vX_meta_copy.c',
+      'bifrost/panvk_vX_meta_clear.c',
+      'bifrost/panvk_vX_nir_lower_descriptors.c',
+      'bifrost/panvk_vX_pipeline.c',
+      'bifrost/panvk_vX_pipeline_layout.c',
+      'bifrost/panvk_vX_shader.c',
+    ]
+  else
+    # Valhall
+    _sources += [
+      'valhall/panvk_vX_descriptor_set.c',
+      'valhall/panvk_vX_descriptor_set_layout.c',
+      'valhall/panvk_vX_meta_copy.c',
+      'valhall/panvk_vX_nir_lower_descriptors.c',
+      'valhall/panvk_vX_pipeline_layout.c',
+    ]
+  endif
+
+  if arch < 10
+    # JM
+    _sources += [
+      'jm/panvk_vX_cmd_buffer.c',
+      'jm/panvk_vX_queue.c',
+    ]
+  else
+    # CSF
+    _sources += [
+      'csf/panvk_vX_cmd_buffer.c',
+      'csf/panvk_vX_queue.c',
+    ]
+  endif
+
   panvk_per_arch_libs += static_library(
     'panvk_v@0@'.format(arch),
-    [
-      panvk_entrypoints[0],
-      'panvk_vX_cmd_buffer.c',
-      'panvk_vX_cs.c',
-      'panvk_vX_descriptor_set.c',
-      'panvk_vX_device.c',
-      'panvk_vX_image.c',
-      'panvk_vX_meta.c',
-      'panvk_vX_meta_blit.c',
-      'panvk_vX_meta_copy.c',
-      'panvk_vX_meta_clear.c',
-      'panvk_vX_nir_lower_descriptors.c',
-      'panvk_vX_pipeline.c',
-      'panvk_vX_shader.c',
-    ],
+    _sources,
     include_directories : [
       inc_include,
       inc_src,
-      inc_gallium, # XXX: util/format/u_formats.h
-      inc_gallium_aux, # XXX: renderonly
       inc_panfrost,
     ],
     dependencies : [
@@ -110,8 +141,6 @@ libvulkan_panfrost = shared_library(
   include_directories : [
     inc_include,
     inc_src,
-    inc_gallium, # XXX: util/format/u_formats.h
-    inc_gallium_aux, # XXX: renderonly
     inc_panfrost,
   ],
   link_whole : [panvk_per_arch_libs],
@@ -174,4 +203,6 @@ _dev_icd = custom_target(
   build_by_default : true,
 )
 
+devenv.append('VK_DRIVER_FILES', _dev_icd.full_path())
+# Deprecated: replaced by VK_DRIVER_FILES above
 devenv.append('VK_ICD_FILENAMES', _dev_icd.full_path())

@@ -25,14 +25,17 @@
  * IN THE SOFTWARE.
  */
 
+#include "radv_buffer.h"
+#include "radv_event.h"
 #include "radv_private.h"
 
 static void
 radv_destroy_event(struct radv_device *device, const VkAllocationCallbacks *pAllocator, struct radv_event *event)
 {
    if (event->bo)
-      device->ws->buffer_destroy(device->ws, event->bo);
+      radv_bo_destroy(device, &event->base, event->bo);
 
+   radv_rmv_log_resource_destroy(device, (uint64_t)radv_event_to_handle(event));
    vk_object_base_finish(&event->base);
    vk_free2(&device->vk.alloc, pAllocator, event);
 }
@@ -60,16 +63,16 @@ radv_create_event(struct radv_device *device, const VkEventCreateInfo *pCreateIn
       bo_flags = RADEON_FLAG_CPU_ACCESS;
    }
 
-   result = device->ws->buffer_create(device->ws, 8, 8, bo_domain,
-                                      RADEON_FLAG_VA_UNCACHED | RADEON_FLAG_NO_INTERPROCESS_SHARING | bo_flags,
-                                      RADV_BO_PRIORITY_FENCE, 0, &event->bo);
+   result = radv_bo_create(device, &event->base, 8, 8, bo_domain,
+                           RADEON_FLAG_VA_UNCACHED | RADEON_FLAG_NO_INTERPROCESS_SHARING | bo_flags,
+                           RADV_BO_PRIORITY_FENCE, 0, is_internal, &event->bo);
    if (result != VK_SUCCESS) {
       radv_destroy_event(device, pAllocator, event);
       return vk_error(device, result);
    }
 
    if (!(pCreateInfo->flags & VK_EVENT_CREATE_DEVICE_ONLY_BIT)) {
-      event->map = (uint64_t *)device->ws->buffer_map(event->bo);
+      event->map = (uint64_t *)radv_buffer_map(device->ws, event->bo);
       if (!event->map) {
          radv_destroy_event(device, pAllocator, event);
          return vk_error(device, VK_ERROR_OUT_OF_DEVICE_MEMORY);

@@ -88,6 +88,10 @@ get_deref_info(nir_shader *shader, nir_variable *var, nir_deref_instr *deref,
             *indirect |= !nir_src_is_const((*p)->arr.index);
          } else if ((*p)->deref_type == nir_deref_type_struct) {
             /* Struct indices are always constant. */
+         }  else if ((*p)->deref_type == nir_deref_type_array_wildcard) {
+            /* Wilcards ref the whole array dimension and should get lowered
+             * to direct deref at a later point.
+             */
          } else {
             unreachable("Unsupported deref type");
          }
@@ -530,6 +534,8 @@ gather_intrinsic_info(nir_intrinsic_instr *instr, nir_shader *shader,
          shader->info.inputs_read |= slot_mask;
          if (nir_intrinsic_io_semantics(instr).high_dvec2)
             shader->info.dual_slot_inputs |= slot_mask;
+         if (nir_intrinsic_io_semantics(instr).per_primitive)
+            shader->info.per_primitive_inputs |= slot_mask;
          shader->info.inputs_read_16bit |= slot_mask_16bit;
          if (!nir_src_is_const(*nir_get_io_offset_src(instr))) {
             shader->info.inputs_read_indirectly |= slot_mask;
@@ -590,6 +596,8 @@ gather_intrinsic_info(nir_intrinsic_instr *instr, nir_shader *shader,
       } else {
          shader->info.outputs_written |= slot_mask;
          shader->info.outputs_written_16bit |= slot_mask_16bit;
+         if (instr->intrinsic == nir_intrinsic_store_per_primitive_output)
+            shader->info.per_primitive_outputs |= slot_mask;
          if (!nir_src_is_const(*nir_get_io_offset_src(instr))) {
             shader->info.outputs_accessed_indirectly |= slot_mask;
             shader->info.outputs_accessed_indirectly_16bit |= slot_mask_16bit;
@@ -664,7 +672,6 @@ gather_intrinsic_info(nir_intrinsic_instr *instr, nir_shader *shader,
    case nir_intrinsic_load_barycentric_model:
    case nir_intrinsic_load_ray_launch_id:
    case nir_intrinsic_load_ray_launch_size:
-   case nir_intrinsic_load_ray_launch_size_addr_amd:
    case nir_intrinsic_load_ray_world_origin:
    case nir_intrinsic_load_ray_world_direction:
    case nir_intrinsic_load_ray_object_origin:

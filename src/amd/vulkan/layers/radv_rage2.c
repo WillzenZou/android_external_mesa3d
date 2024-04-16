@@ -21,6 +21,7 @@
  * IN THE SOFTWARE.
  */
 
+#include "radv_device.h"
 #include "radv_private.h"
 #include "vk_common_entrypoints.h"
 #include "vk_framebuffer.h"
@@ -31,7 +32,7 @@ rage2_CmdBeginRenderPass(VkCommandBuffer commandBuffer, const VkRenderPassBeginI
 {
    VK_FROM_HANDLE(vk_framebuffer, framebuffer, pRenderPassBegin->framebuffer);
    RADV_FROM_HANDLE(radv_cmd_buffer, cmd_buffer, commandBuffer);
-   struct radv_device *device = cmd_buffer->device;
+   struct radv_device *device = radv_cmd_buffer_device(cmd_buffer);
 
    VkRenderPassBeginInfo render_pass_begin = {
       .sType = pRenderPassBegin->sType,

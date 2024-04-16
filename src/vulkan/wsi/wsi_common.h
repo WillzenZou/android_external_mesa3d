@@ -112,8 +112,10 @@ struct wsi_device {
    VkPhysicalDevicePCIBusInfoPropertiesEXT pci_bus_info;
 
    VkExternalSemaphoreHandleTypeFlags semaphore_export_handle_types;
+   VkExternalSemaphoreHandleTypeFlags timeline_semaphore_export_handle_types;
 
    bool has_import_memory_host;
+   bool has_timeline_semaphore;
 
    /** Indicates if wsi_image_create_info::scanout is supported
     *
@@ -160,6 +162,10 @@ struct wsi_device {
 
       /* adds an extra minImageCount when running under xwayland */
       bool extra_xwayland_image;
+
+      /* Never report VK_SUBOPTIMAL_KHR. Used to workaround
+       * games that cannot handle SUBOPTIMAL correctly. */
+      bool ignore_suboptimal;
    } x11;
 
    struct {

@@ -8417,6 +8417,7 @@
     <src start="0"/>
     <src start="1"/>
     <immediate name="sr_count" size="4" pseudo="true"/>
+    <mod name="wide_indices" start="8" size="1" opt="wide_indices"/>
     <mod name="texel_offset" start="9" size="1" opt="texel_offset"/>
     <mod name="skip" start="9" size="1" opt="skip"/>
     <mod name="shadow" start="9" size="1" opt="shadow"/>
@@ -8466,6 +8467,7 @@
     <src start="0"/>
     <src start="1"/>
     <immediate name="sr_count" size="4" pseudo="true"/>
+    <mod name="wide_indices" start="8" size="1" opt="wide_indices"/>
     <mod name="texel_offset" start="9" size="1" opt="texel_offset"/>
     <mod name="skip" start="9" size="1" opt="skip"/>
     <mod name="array_enable" start="9" size="1" opt="array_enable"/>
@@ -8507,6 +8509,7 @@
     <src start="0"/>
     <src start="1"/>
     <immediate name="sr_count" size="4" pseudo="true"/>
+    <mod name="wide_indices" start="8" size="1" opt="wide_indices"/>
     <mod name="texel_offset" start="9" size="1" opt="texel_offset"/>
     <mod name="skip" start="9" size="1" opt="skip"/>
     <mod name="shadow" start="9" size="1" opt="shadow"/>
@@ -8707,6 +8710,11 @@
 
   <ins name="+LEA_BUF_IMM" staging="w=2" message="attribute" pseudo="true">
     <src start="0"/>
+  </ins>
+
+  <ins name="+LEA_PKA" staging="w=2" message="attribute" pseudo="true">
+    <src start="0"/>
+    <src start="3"/>
   </ins>
 
   <ins name="+LD_BUFFER.i128" staging="w=4" pseudo="true" message="load">
