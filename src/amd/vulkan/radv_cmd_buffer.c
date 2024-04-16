@@ -8842,7 +8842,6 @@ radv_emit_indirect_taskmesh_draw_packets(const struct radv_device *device, struc
    const uint64_t count_va = !info->count_buffer ? 0
                                                  : radv_buffer_get_va(info->count_buffer->bo) +
                                                       info->count_buffer->offset + info->count_buffer_offset;
-   uint64_t workaround_cond_va = 0;
 
    if (count_va)
       radv_cs_add_buffer(ws, ace_cs, info->count_buffer->bo);
