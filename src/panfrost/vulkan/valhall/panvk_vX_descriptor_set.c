@@ -528,15 +528,15 @@ panvk_per_arch(descriptor_set_copy)(const VkCopyDescriptorSet *copy)
 
    case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
    case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
-      uint32_t dst_dyn_buf_idx =
-         dst_binding_layout->dyn_buf_idx + copy->dstArrayElement;
-      uint32_t src_dyn_buf_idx =
-         src_binding_layout->dyn_buf_idx + copy->srcArrayElement;
+      //uint32_t dst_dyn_buf_idx =
+      //   dst_binding_layout->dyn_buf_idx + copy->dstArrayElement;
+      //uint32_t src_dyn_buf_idx =
+      //   src_binding_layout->dyn_buf_idx + copy->srcArrayElement;
 
       memcpy(
-         &dst_set->dyn_bufs[dst_dyn_buf_idx],
-         &src_set->dyn_bufs[src_dyn_buf_idx],
-         copy->descriptorCount * sizeof(dst_set->dyn_bufs[dst_dyn_buf_idx]));
+         &dst_set->dyn_bufs[dst_binding_layout->dyn_buf_idx + copy->dstArrayElement],
+         &src_set->dyn_bufs[src_binding_layout->dyn_buf_idx + copy->srcArrayElement],
+         copy->descriptorCount * sizeof(dst_set->dyn_bufs[dst_binding_layout->dyn_buf_idx + copy->dstArrayElement]));
       break;
 
    default:

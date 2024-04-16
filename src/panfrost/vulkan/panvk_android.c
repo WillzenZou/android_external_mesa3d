@@ -9,8 +9,11 @@
 #include <hardware/hardware.h>
 #include <hardware/hwvulkan.h>
 #include <vulkan/vk_icd.h>
+#include <stdlib.h>
+#include "panvk_entrypoints.h"
 
 #include "util/log.h"
+#include "vk_alloc.h"
 
 static int panvk_hal_open(const struct hw_module_t *mod, const char *id,
                           struct hw_device_t **dev);
